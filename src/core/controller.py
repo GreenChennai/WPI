@@ -17,6 +17,7 @@ class ExportParams:
     format: str = "PNG"             # PNG / GIF / MP4 / PDF
     width: int = 1080
     scale: int = 1                  # v2.1.0：分辨率倍率（原生渲染，X1/X2/X4/X8）
+    height: int = 0                 # v2.2.0：高度锁定（0=不限制；>0 内容高度锁定，超出不导出）
     fps: int = 15
     loop: int = 0
     transparent: bool = False
@@ -105,6 +106,15 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             engine.settle()
         _progress(45)
 
+        # v2.2.0：高度锁定 —— 视口高度设为锁定值（浏览器窗口能呈现的最高高度），
+        # 内容不压缩，超出部分不导出
+        if params.height and params.height > 0:
+            _status("设置锁定高度视口…")
+            engine.page.set_viewport_size(
+                {"width": params.width, "height": int(params.height)}
+            )
+            engine.page.wait_for_timeout(150)
+
         result: dict = {
             "format": params.format,
             "path": params.output_path,
@@ -126,6 +136,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                 fps=params.fps,
                 max_wait=params.max_wait,
                 on_frame=_on_frame,
+                scroll_limit=params.height if params.height > 0 else None,
             )
             durations = []
             for i in range(len(times)):
@@ -160,6 +171,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                 fps=params.fps,
                 max_wait=params.max_wait,
                 on_frame=_on_frame,
+                scroll_limit=params.height if params.height > 0 else None,
             )
             _status("编码 MP4…")
             mp4 = MP4Exporter().write(
@@ -177,12 +189,26 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         elif params.format == "PNG":
             # v1.8.0：导出前已 settle（等待资源加载 + 动画收敛到终态），
             # 此处直接截取完整呈现后的页面当前状态。
-            if params.full_page:
+            if params.height and params.height > 0:
+                # v2.2.0：高度锁定 —— 只导出顶部锁定高度范围内的内容
+                _status("按锁定高度导出…")
+                image = engine.capture_highres(
+                    height_css=int(params.height), transparent=params.transparent
+                )
+                result["width"] = image.size[0]
+                result["height"] = image.size[1]
+                result["height_locked"] = True
+            elif params.full_page:
                 _status("测量并导出整页内容…")
                 actual_w, _actual_h = engine.prepare_full_page(params.width, None)
-                image = engine.capture_final_frame(
-                    transparent=params.transparent, full_page=True
-                )
+                # v2.2.0：4X/8X 高倍率下 captureBeyondViewport 单拍受 Chromium
+                # 最大截图尺寸限制会截断组件 → 改分块滚动截图 + 拼接
+                if params.scale > 2:
+                    image = engine.capture_highres(transparent=params.transparent)
+                else:
+                    image = engine.capture_final_frame(
+                        transparent=params.transparent, full_page=True
+                    )
                 result["width"] = image.size[0]
                 result["height"] = image.size[1]
                 result["full_page"] = True
@@ -198,7 +224,13 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         elif params.format == "PDF":
             # v1.8.0：导出前已 settle，此处直接打印完整呈现后的页面当前状态。
             out_w, out_h = params.width, params.width
-            if params.full_page:
+            if params.height and params.height > 0:
+                # v2.2.0：高度锁定 —— 打印高度锁定为该值
+                out_h = int(params.height)
+                result["width"] = out_w
+                result["height"] = out_h
+                result["height_locked"] = True
+            elif params.full_page:
                 _status("测量并打印整页内容…")
                 out_w, out_h = engine.prepare_full_page(params.width, None)
                 result["width"] = out_w

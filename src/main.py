@@ -84,6 +84,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
         format=fmt,
         width=args.width,
         scale=args.scale,
+        height=args.height,
         fps=args.fps,
         loop=args.loop,
         transparent=args.transparent,
@@ -181,6 +182,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--width", type=int, default=1080)
     parser.add_argument("--scale", type=int, choices=[1, 2, 4, 8], default=1,
                         help="分辨率倍率（原生渲染放大，X1/X2/X4/X8）")
+    parser.add_argument("--height", type=int, default=0,
+                        help="高度锁定（0=不限制；>0 内容高度锁定为该值，超出不导出）")
     parser.add_argument("--fps", type=int, default=15)
     parser.add_argument("--loop", type=int, default=0)
     parser.add_argument("--max-wait", type=float, dest="max_wait")

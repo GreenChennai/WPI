@@ -185,6 +185,13 @@ QComboBox#cardEntry QAbstractItemView {{
     color: {T.TEXT_TITLE};
 }}
 
+/* v2.2.0：空工作目录提示（字号加大，仍居中） */
+QLabel#emptyTitle {{
+    font-size: 17px;
+    font-weight: 600;
+    color: {T.TEXT_SECONDARY};
+}}
+
 /* ---------- 勾选框 ---------- */
 QCheckBox {{ background: transparent; spacing: 6px; }}
 QCheckBox::indicator {{

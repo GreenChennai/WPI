@@ -414,10 +414,8 @@ class WorkspacePanel(QGroupBox):
         self._empty_layout = QVBoxLayout(self._empty_container)
         self._empty_layout.setContentsMargins(0, 0, 0, 0)
         self._empty_layout.addStretch(1)
-        self.empty_label = QLabel("该目录下暂无可用项目。\n"
-                                  "把包含 index.html 的网页项目文件夹放入工作目录，\n"
-                                  "或点击上方子目录进入继续搜索。")
-        self.empty_label.setProperty("secondary", True)
+        self.empty_label = QLabel("无可用项目")
+        self.empty_label.setObjectName("emptyTitle")  # v2.2.0：字号加大
         self.empty_label.setWordWrap(True)
         self.empty_label.setAlignment(Qt.AlignCenter)
         self._empty_layout.addWidget(self.empty_label, 0, Qt.AlignHCenter | Qt.AlignVCenter)

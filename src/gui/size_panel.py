@@ -10,6 +10,8 @@ from __future__ import annotations
 from PySide6.QtCore import QRegularExpression, Signal
 from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
@@ -17,11 +19,18 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
-from config.presets import DEFAULT_SCALE, DEFAULT_WIDTH, SCALE_PRESETS, WIDTH_PRESETS
+from config.presets import (
+    DEFAULT_HEIGHT_LIMIT,
+    DEFAULT_SCALE,
+    DEFAULT_WIDTH,
+    SCALE_PRESETS,
+    WIDTH_PRESETS,
+)
 
 
 class SizePanel(QWidget):
@@ -70,6 +79,26 @@ class SizePanel(QWidget):
         scale_row.addWidget(self.scale_combo, 1)
         form.addRow("分辨率倍率", scale_row)
 
+        # ---- v2.2.0：高度锁定（默认不启用；启用后内容高度锁定为该值，超出不导出）
+        height_row = QHBoxLayout()
+        self.height_chk = QCheckBox("启用高度限制")
+        self.height_chk.setChecked(False)
+        self.height_chk.setToolTip(
+            "勾选后导出内容高度锁定为下方数值（浏览器窗口能呈现的最高高度），"
+            "超出部分不导出；不压缩网页内容。"
+        )
+        self.height_chk.toggled.connect(self._on_height_toggled)
+        self.height_spin = QSpinBox()
+        self.height_spin.setRange(100, 99999)
+        self.height_spin.setValue(DEFAULT_HEIGHT_LIMIT)
+        self.height_spin.setSuffix(" px")
+        self.height_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.height_spin.setEnabled(False)
+        height_row.addWidget(self.height_chk)
+        height_row.addWidget(self.height_spin)
+        height_row.addStretch(1)
+        form.addRow("高度", height_row)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(group)
@@ -111,6 +140,19 @@ class SizePanel(QWidget):
     def get_scale(self) -> int:
         return int(self.scale_combo.currentData())
 
+    # v2.2.0：高度锁定（0 = 不限制）
+    def get_height_limit(self) -> int:
+        if not self.height_chk.isChecked():
+            return 0
+        return max(1, int(self.height_spin.value()))
+
+    def set_height_limit(self, height: int) -> None:
+        if height and height > 0:
+            self.height_spin.setValue(height)
+            self.height_chk.setChecked(True)
+        else:
+            self.height_chk.setChecked(False)
+
     # v2.0.0：在线网站
     def get_online_url(self) -> str:
         return self.online_url.text().strip()
@@ -121,6 +163,9 @@ class SizePanel(QWidget):
     # ------------------------------------------------------------- internal
     def _text_changed(self, _text: str) -> None:
         self.widthChanged.emit(self.get_width())
+
+    def _on_height_toggled(self, checked: bool) -> None:
+        self.height_spin.setEnabled(checked)
 
     def _emit_online_preview(self) -> None:
         url = self.get_online_url()

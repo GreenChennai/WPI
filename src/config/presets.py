@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
@@ -25,6 +25,9 @@ DEFAULT_WIDTH = 1080
 # 输出分辨率 × 倍率（deviceScaleFactor），布局与比例保持不变
 SCALE_PRESETS: tuple[int, ...] = (1, 2, 4, 8)
 DEFAULT_SCALE = 1
+
+# v2.2.0：高度锁定（默认不启用；启用后导出内容高度锁定为该值，超出不导出）
+DEFAULT_HEIGHT_LIMIT = 2560
 
 # ---------------------------------------------------------------------------
 # 导出默认值（设计文档 4.5 / 8）

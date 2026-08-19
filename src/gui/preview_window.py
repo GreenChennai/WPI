@@ -120,6 +120,8 @@ class PreviewWindow(QMainWindow):
 
         v2.1.0：本地源统一挂载到进程内唯一的共享静态服务（单端口），
         切换项目时调用 mount() 切换挂载目录，不再为每个预览开新端口。
+        v2.2.0：URL 追加唯一 query（?wpi=<ms>），保证切换项目时即使入口同名
+        （都是 /index.html）也会触发重新加载，而不是命中旧页缓存。
         """
         if url_override:
             url = url_override
@@ -133,7 +135,10 @@ class PreviewWindow(QMainWindow):
                 mount = os.path.dirname(os.path.abspath(source))
                 rel = os.path.basename(source)
             srv.mount(mount)
-            url = srv.base_url + "/" + urllib.parse.quote(rel)
+            import time as _time
+
+            url = (srv.base_url + "/" + urllib.parse.quote(rel)
+                   + f"?wpi={int(_time.time() * 1000)}")
         self._view.load(url)
 
     def closeEvent(self, event) -> None:

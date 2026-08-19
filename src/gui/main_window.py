@@ -258,15 +258,20 @@ class MainWindow(QMainWindow):
     def _open_preview_for(self, project: str) -> None:
         from gui.preview_window import PreviewWindow  # 延迟导入，加速启动
 
-        if self._preview_win is not None:
-            if self._preview_win.isVisible():
-                self._preview_win.raise_()
-                self._preview_win.activateWindow()
-                return
-            self._preview_win = None
-
         width = self.size_panel.get_width()
         source = self._selected_source(project)
+        # v2.2.0：预览窗口已打开时复用同一窗口并重新加载新项目（此前直接 raise
+        # 返回导致切换项目仍显示旧页面）。
+        if self._preview_win is not None and self._preview_win.isVisible():
+            win = self._preview_win
+            win.load(source)
+            win.setWindowTitle(f"网页预览 - {os.path.basename(source)}")
+            win.raise_()
+            win.activateWindow()
+            return
+        if self._preview_win is not None:
+            self._preview_win = None
+
         win = PreviewWindow(self, width=width)
         win.setWindowTitle(f"网页预览 - {os.path.basename(source)}")
         win.load(source)
@@ -298,7 +303,10 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             QMessageBox.critical(self, "打开失败", str(exc))
             return
-        url = srv.base_url + "/" + rel
+        # v2.2.0：URL 追加唯一 query，避免不同项目同名入口（/index.html）命中缓存
+        import time as _time
+
+        url = f"{srv.base_url}/{rel}?wpi={int(_time.time() * 1000)}"
         threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
         self.status_label.setText(f"已在系统浏览器打开：{url}")
 
@@ -306,11 +314,15 @@ class MainWindow(QMainWindow):
     def _open_preview_online(self, url: str) -> None:
         from gui.preview_window import PreviewWindow  # 延迟导入，加速启动
 
+        # v2.2.0：复用可见窗口并重新加载新 URL
+        if self._preview_win is not None and self._preview_win.isVisible():
+            win = self._preview_win
+            win.load("", url_override=url)
+            win.setWindowTitle(f"网页预览 - {url}")
+            win.raise_()
+            win.activateWindow()
+            return
         if self._preview_win is not None:
-            if self._preview_win.isVisible():
-                self._preview_win.raise_()
-                self._preview_win.activateWindow()
-                return
             self._preview_win = None
 
         width = self.size_panel.get_width()
@@ -336,6 +348,7 @@ class MainWindow(QMainWindow):
             format=extra["format"],
             width=width,
             scale=self.size_panel.get_scale(),   # v2.1.0：分辨率倍率
+            height=self.size_panel.get_height_limit(),  # v2.2.0：高度锁定（0=不限制）
             fps=extra["fps"],
             loop=extra["loop"],
             transparent=extra["transparent"],

@@ -39,6 +39,13 @@ class _SharedHandler(SimpleHTTPRequestHandler):
         directory = shared.directory if shared is not None else None
         super().__init__(*args, directory=directory, **kwargs)
 
+    def end_headers(self):
+        # v2.2.0：禁止缓存，切换挂载目录后浏览器必须重新请求资源，
+        # 避免切换项目时仍显示上一个项目的旧 CSS/JS/页面
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        super().end_headers()
+
     def log_message(self, fmt, *args):
         pass
 

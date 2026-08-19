@@ -116,6 +116,72 @@ class CaptureEngine:
             ]"""
         ))
 
+    def content_height(self) -> int:
+        """返回页面实际内容高度（CSS px）。"""
+        return max(1, int(self.content_size()[1]))
+
+    def capture_highres(
+        self,
+        height_css: int | None = None,
+        transparent: bool = False,
+    ) -> Image.Image:
+        """分块滚动截图 + 纵向拼接（v2.2.0）。
+
+        规避 Chromium 单拍最大截图尺寸（约 16384px）限制：deviceScaleFactor
+        高倍率下整页截图（captureBeyondViewport）会因像素尺寸超限被截断
+        （表现为 4X/8X 时组件缺失/显示不全）。改为按视口逐块截图后拼接。
+
+        height_css=None 时捕获整页；给定值时只捕获顶部 min(内容高, height_css)
+        高度（高度锁定，超出部分不导出）。
+        注意：滚动分块会使 position:fixed/sticky 元素在每块重复出现（取舍）。
+        """
+        vw = self.page.viewport_size
+        H = max(1, int(vw["height"]))
+        total = self.content_height()
+        if height_css is not None:
+            total = min(total, max(1, int(height_css)))
+        chunks: list[Image.Image] = []
+        y = 0
+        while y < total:
+            try:
+                self.page.evaluate("(y) => window.scrollTo(0, y)", y)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(60)
+            shot = self.capture_final_frame(transparent=transparent, full_page=False)
+            ratio = shot.size[1] / float(H)  # 实际像素 / CSS px
+            # 滚动位置可能被浏览器 clamp（页面末尾处 scrollY < 目标 y），
+            # 按实际 scrollY 计算裁切起点，避免最后一块错位/空白
+            try:
+                actual = int(self.page.evaluate("() => window.scrollY || 0"))
+            except Exception:
+                actual = y
+            take_css = min(H, total - y)
+            take_px = max(1, int(round(take_css * ratio)))
+            start_px = max(0, int(round((y - actual) * ratio)))
+            end_px = min(shot.size[1], start_px + take_px)
+            if start_px < end_px:
+                chunks.append(shot.crop((0, start_px, shot.size[0], end_px)))
+            y += H
+        try:
+            self.page.evaluate("() => window.scrollTo(0, 0)")
+        except Exception:
+            pass
+        if not chunks:
+            return self.capture_final_frame(transparent=transparent, full_page=False)
+        width = max(c.size[0] for c in chunks)
+        height = sum(c.size[1] for c in chunks)
+        canvas = Image.new(
+            "RGBA" if transparent else "RGB",
+            (width, height),
+            (0, 0, 0, 0) if transparent else (255, 255, 255),
+        )
+        ty = 0
+        for c in chunks:
+            canvas.paste(c, (0, ty))
+            ty += c.size[1]
+        return canvas
+
     def prepare_full_page(self, width: int | None, height: int | None) -> tuple[int, int]:
         """按导出目标尺寸设置视口，返回页面实际内容尺寸。
 
@@ -356,19 +422,23 @@ class CaptureEngine:
         max_wait: float = ANIMATION_MAX_WAIT,
         stable_frames: int = ANIMATION_STABLE_FRAMES,
         on_frame=None,
+        scroll_limit: int | None = None,   # v2.2.0：高度锁定时限制录制范围
     ) -> tuple[list[Image.Image], list[float]]:
         """滚动逐帧录制整页（GIF / MP4 用，v2.0.0 需求 6）。
 
         从头到尾缓慢滚动视口，自然触发 reveal-on-scroll 入场动画（元素进入
         视口才播放），并覆盖页面全部内容，解决「只录到顶部标题、下方是背景
         色块」的问题。首帧先停在顶部以捕获首屏英雄动画，随后在 max_wait 时长
-        内均匀滚到底。返回 (帧序列, 各帧采集时刻秒)。
+        内均匀滚到底。scroll_limit 给定（高度锁定）时仅录制顶部该高度范围。
+        返回 (帧序列, 各帧采集时刻秒)。
         """
         vh = self.page.evaluate("() => window.innerHeight || 600")
         total = self.page.evaluate(
             "() => Math.max(document.documentElement.scrollHeight, "
             "document.body ? document.body.scrollHeight : 0) || 0"
         )
+        if scroll_limit is not None:
+            total = min(total, max(0, int(scroll_limit)))
         interval = 1.0 / max(1, int(fps))
         max_frames = max(int(max_wait * fps), 8)
         frames: list[Image.Image] = [self.capture_final_frame(full_page=False)]

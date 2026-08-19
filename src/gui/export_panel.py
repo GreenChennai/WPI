@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
@@ -70,22 +70,32 @@ class ExportPanel(QWidget):
         self.fps_combo.currentIndexChanged.connect(self._changed)
         gform.addRow("帧率", self.fps_combo)
 
-        # 循环：开关「无限循环」默认开启；关闭时启用数字输入框（最小 1）
+        # v2.2.0：循环控件垂直左对齐——上「无限循环」勾选，下次数输入；
+        # 只有取消勾选时才显示次数输入窗口（默认勾选 = 无限循环）
         self.loop_widget = QWidget(self)
-        lw = QHBoxLayout(self.loop_widget)
+        lw = QVBoxLayout(self.loop_widget)
         lw.setContentsMargins(0, 0, 0, 0)
-        lw.addWidget(QLabel("循环次数"))
+        lw.setSpacing(4)
         self.loop_chk = QCheckBox("无限循环")
         self.loop_chk.setChecked(GIF_LOOP == 0)
         self.loop_chk.setToolTip("开启 = 无限循环；关闭 = 指定循环次数（最小 1）")
         self.loop_chk.toggled.connect(self._on_loop_toggled)
+        lw.addWidget(self.loop_chk, 0, Qt.AlignLeft)
+        self.loop_spin_row = QWidget(self)
+        lsr = QHBoxLayout(self.loop_spin_row)
+        lsr.setContentsMargins(0, 0, 0, 0)
+        lsr.addWidget(QLabel("循环次数"))
         self.loop_spin = QSpinBox()
         self.loop_spin.setRange(1, 1000)
         self.loop_spin.setValue(1)
-        self.loop_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # v2.0.0：去掉丑陋的 +/- 步进按钮
+        self.loop_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # v2.0.0：去掉 +/- 步进按钮
         self.loop_spin.valueChanged.connect(self._changed)
-        lw.addWidget(self.loop_chk)
-        lw.addWidget(self.loop_spin)
+        lsr.addWidget(self.loop_spin)
+        lsr.addStretch(1)
+        lw.addWidget(self.loop_spin_row, 0, Qt.AlignLeft)
+        # 默认「无限循环」勾选 → 不显示次数输入窗口且禁用
+        self.loop_spin_row.setVisible(False)
+        self.loop_spin.setEnabled(False)
         gform.addRow(self.loop_widget)
 
         self.maxwait_spin = QSpinBox()
@@ -176,6 +186,8 @@ class ExportPanel(QWidget):
         self._changed()
 
     def _on_loop_toggled(self, checked: bool) -> None:
+        # v2.2.0：取消勾选「无限循环」时才显示次数输入窗口
+        self.loop_spin_row.setVisible(not checked)
         self.loop_spin.setEnabled(not checked)
         self._changed()
 
