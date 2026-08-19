@@ -1,6 +1,6 @@
-"""MP4 导出：把滚动录制的帧序列用 FFmpeg 编码为 H.264 MP4（v2.0.0）。
+"""MP4 导出：把整页逐帧序列用 FFmpeg 编码为 H.264 **无损** MP4（v2.3.0）。
 
-帧序列由 CaptureEngine.capture_scroll_frames 提供（与 GIF 同源）。
+帧序列由 CaptureEngine.capture_frames(full_page=True) 提供（与 GIF 同源）。
 FFmpeg 发现顺序同 GIFExporter：WPI_FFMPEG 环境变量 → 软件同目录 → PATH。
 """
 
@@ -26,8 +26,10 @@ class MP4Exporter:
 
     def write(self, frames: list[Image.Image], path: str, fps: int = 15,
               use_ffmpeg: bool = True) -> dict:
-        """把帧序列编码为 H.264 / yuv420p / faststart 的 MP4。
+        """把帧序列编码为 H.264 **无损** MP4（v2.3.0：质量拉满，供用户后处理）。
 
+        libx264 `-crf 0` + `-pix_fmt yuv444p` 为无损编码（High 4:4:4），
+        帧像素零损失、体积较大属正常；适合二次剪辑后处理。
         需要 FFmpeg（含 libx264）。无 FFmpeg 时直接抛错，由调用方回报用户。
         """
         if not (use_ffmpeg and self.ffmpeg):
@@ -42,13 +44,15 @@ class MP4Exporter:
                 self.ffmpeg, "-y", "-loglevel", "error",
                 "-framerate", str(max(1, int(fps))),
                 "-i", os.path.join(td, "frame_%05d.png"),
-                "-vf", "format=yuv420p",
-                "-movflags", "+faststart",
                 "-c:v", "libx264",
+                "-crf", "0",           # 无损
+                "-preset", "slow",
+                "-pix_fmt", "yuv444p", # 无 4:2:0 色度抽稀，真无损
+                "-movflags", "+faststart",
                 out,
             ]
             subprocess.run(
                 cmd, check=True, capture_output=True,
                 creationflags=_hide_console_flags(),
             )
-        return {"encoder": "FFmpeg", "frames": len(frames)}
+        return {"encoder": "FFmpeg(lossless)", "frames": len(frames)}

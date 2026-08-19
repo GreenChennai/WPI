@@ -99,9 +99,11 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         _progress(40)
 
         # v1.8.0：导出前确保内容已完整呈现（字体 / 图片加载 + 动画收敛到终态），
-        # 避免截到未渲染的纯色块。GIF 仍需录制动画过程，只等静态资源即可。
-        if params.format == "GIF":
+        # 避免截到未渲染的纯色块。GIF/MP4 需录制动画过程：等资源 + 滚动触发
+        # reveal 内容展开（不冻结动画）；PNG/PDF 则 settle 收敛到终态。
+        if params.format in ("GIF", "MP4"):
             engine.wait_assets()
+            engine.trigger_scroll_reveals()   # v2.3.0：整页可见，reveal 内容已展开
         else:
             engine.settle()
         _progress(45)
@@ -125,18 +127,20 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         }
 
         if params.format == "GIF":
-            # v2.0.0：滚动逐帧录制整页（触发 reveal-on-scroll 入场动画并覆盖
-            # 全部内容），解决「只录到顶部标题、下方是背景色块」的问题。
-            _status("滚动录制整页动画帧…")
+            # v2.3.0：与 PNG 尺寸语义一致——只限制宽度，高度为网页自然内容
+            # 高度（整页逐帧，captureBeyondViewport）；用户启用高度锁定时只录制
+            # 顶部锁定区域（视口高=锁定值）。settle() 已触发 reveal 动画并回顶，
+            # 整页可见无需滚动，不再出现 800×800 正方形 + 滚动录制。
+            _status("录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
                 _progress(min(85, 45 + n))
 
-            frames, times = engine.capture_scroll_frames(
+            frames, times = engine.capture_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
+                full_page=not (params.height > 0),
                 on_frame=_on_frame,
-                scroll_limit=params.height if params.height > 0 else None,
             )
             durations = []
             for i in range(len(times)):
@@ -161,17 +165,17 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             _progress(98)
 
         elif params.format == "MP4":
-            # v2.0.0：与 GIF 共用滚动录制，再用 FFmpeg 编码为 H.264 MP4
-            _status("滚动录制整页动画帧…")
+            # v2.3.0：与 GIF 共用整页逐帧录制，FFmpeg 无损编码（x264 crf0）
+            _status("录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
                 _progress(min(85, 45 + n))
 
-            frames, times = engine.capture_scroll_frames(
+            frames, times = engine.capture_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
+                full_page=not (params.height > 0),
                 on_frame=_on_frame,
-                scroll_limit=params.height if params.height > 0 else None,
             )
             _status("编码 MP4…")
             mp4 = MP4Exporter().write(

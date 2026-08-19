@@ -125,17 +125,20 @@ class CaptureEngine:
         height_css: int | None = None,
         transparent: bool = False,
     ) -> Image.Image:
-        """分块滚动截图 + 纵向拼接（v2.2.0）。
+        """分块截图 + 纵向拼接（v2.3.0 重做，替代 v2.2.0 的滚动+手工裁切）。
 
-        规避 Chromium 单拍最大截图尺寸（约 16384px）限制：deviceScaleFactor
-        高倍率下整页截图（captureBeyondViewport）会因像素尺寸超限被截断
-        （表现为 4X/8X 时组件缺失/显示不全）。改为按视口逐块截图后拼接。
+        方案：滚动到目标行（强制 Chromium 栅格化该区域，避免远端区域白块），
+        再用**视口相对 clip**（{y: rel.., height: take}）截图——clip 由浏览器
+        按 deviceScaleFactor 自动缩放，块尺寸恒为视口大小（远低于单拍 16384px
+        上限），无需手工像素裁切，杜绝拼接错位/模糊；末尾滚动被 clamp 时按
+        实际 scrollY 计算视口内偏移（rel = y - scrollY）保证区域精确连续。
 
         height_css=None 时捕获整页；给定值时只捕获顶部 min(内容高, height_css)
-        高度（高度锁定，超出部分不导出）。
-        注意：滚动分块会使 position:fixed/sticky 元素在每块重复出现（取舍）。
+        高度（高度锁定，超出不导出）。
+        注意：分块截图会使 position:fixed/sticky 元素在每块重复出现（取舍）。
         """
         vw = self.page.viewport_size
+        W = max(1, int(vw["width"]))
         H = max(1, int(vw["height"]))
         total = self.content_height()
         if height_css is not None:
@@ -147,21 +150,26 @@ class CaptureEngine:
                 self.page.evaluate("(y) => window.scrollTo(0, y)", y)
             except Exception:
                 pass
-            self.page.wait_for_timeout(60)
-            shot = self.capture_final_frame(transparent=transparent, full_page=False)
-            ratio = shot.size[1] / float(H)  # 实际像素 / CSS px
-            # 滚动位置可能被浏览器 clamp（页面末尾处 scrollY < 目标 y），
-            # 按实际 scrollY 计算裁切起点，避免最后一块错位/空白
+            # 高倍率下等待栅格化完成，避免截图模糊
+            self.page.wait_for_timeout(150)
             try:
                 actual = int(self.page.evaluate("() => window.scrollY || 0"))
             except Exception:
                 actual = y
-            take_css = min(H, total - y)
-            take_px = max(1, int(round(take_css * ratio)))
-            start_px = max(0, int(round((y - actual) * ratio)))
-            end_px = min(shot.size[1], start_px + take_px)
-            if start_px < end_px:
-                chunks.append(shot.crop((0, start_px, shot.size[0], end_px)))
+            rel = max(0, y - actual)          # 目标区域在视口内的偏移
+            take = min(H - rel, total - y)    # 本次要截的 CSS 高度
+            if take <= 0:
+                y += H
+                continue
+            shot = self.page.screenshot(
+                clip={"x": 0, "y": rel, "width": W, "height": take},
+                omit_background=transparent,
+            )
+            chunks.append(
+                Image.open(io.BytesIO(shot)).convert(
+                    "RGBA" if transparent else "RGB"
+                )
+            )
             y += H
         try:
             self.page.evaluate("() => window.scrollTo(0, 0)")
