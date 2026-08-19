@@ -161,7 +161,7 @@ class PreviewWindow(QMainWindow):
             url = build_url(source, self._server)
         self._view.load(url)
 
-    def closeEvent(self, event) -> None:  # noqa: N802
+    def closeEvent(self, event) -> None:
         self._view.setPage(None)
         if self._server is not None:
             self._server.stop()

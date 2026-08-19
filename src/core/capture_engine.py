@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 
 class CaptureEngine:
-    def __init__(self, browser: "BrowserHost", page: "Page", width: int, height: int):
+    def __init__(self, browser: BrowserHost, page: Page, width: int, height: int):
         self.browser = browser
         self.page = page
         self.width = width
@@ -37,11 +37,11 @@ class CaptureEngine:
     @classmethod
     def load(
         cls,
-        browser: "BrowserHost",
+        browser: BrowserHost,
         url: str,
         viewport: tuple[int, int],
         load_timeout_ms: int = 30000,
-    ) -> "CaptureEngine":
+    ) -> CaptureEngine:
         context, page = browser.new_page(viewport)
         page.goto(url, wait_until="load", timeout=load_timeout_ms)
         try:

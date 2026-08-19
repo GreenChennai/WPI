@@ -15,13 +15,14 @@ from PySide6.QtCore import (
     Property,
     QEvent,
     QPropertyAnimation,
-    QThreadPool,
     QRunnable,
     Qt,
+    QThreadPool,
     Signal,
 )
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -35,7 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.color_profiler import extract_palette
-from core.static_server import resolve_index
+from core.static_server import list_html_files, resolve_index
 from gui import tokens as T
 
 _CARD_SIZE = 168  # 卡片边长（px），自适应排版按此计算列数（v1.4.0）
@@ -44,7 +45,7 @@ _CARD_SIZE = 168  # 卡片边长（px），自适应排版按此计算列数（v
 class _PaletteTask(QRunnable):
     """后台提取单项目主色，完成后经面板信号回传（线程安全）。"""
 
-    def __init__(self, project_dir: str, panel: "WorkspacePanel"):
+    def __init__(self, project_dir: str, panel: WorkspacePanel):
         super().__init__()
         self.project_dir = project_dir
         self.panel = panel
@@ -98,7 +99,7 @@ class _CardBase(QWidget):
     hover = Property(float, get_hover, set_hover)
 
     # ---- 鼠标进出动画 ----
-    def enterEvent(self, event: QEvent) -> None:  # noqa: N802
+    def enterEvent(self, event: QEvent) -> None:
         self._entered = True
         self._animate.stop()
         self._animate.setStartValue(self._hover)
@@ -106,7 +107,7 @@ class _CardBase(QWidget):
         self._animate.start()
         super().enterEvent(event)
 
-    def leaveEvent(self, event: QEvent) -> None:  # noqa: N802
+    def leaveEvent(self, event: QEvent) -> None:
         self._entered = False
         self._animate.stop()
         self._animate.setStartValue(self._hover)
@@ -126,7 +127,7 @@ class _CardBase(QWidget):
     def _border_width(self) -> int:
         return 1
 
-    def paintEvent(self, event) -> None:  # noqa: N802
+    def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         rect = self.rect().adjusted(1, 1, -1, -1)
@@ -141,7 +142,11 @@ class _CardBase(QWidget):
 
 
 class ProjectCard(_CardBase):
-    """单个项目方块卡片。"""
+    """单个项目方块卡片。
+
+    v1.7.0：项目内存在多个 HTML 文件时，入口文件从静态标签改为下拉框，
+    用户可切换选择要预览 / 导出 / 浏览器打开的页面。
+    """
 
     previewRequested = Signal(str)
     browserRequested = Signal(str)
@@ -155,6 +160,13 @@ class ProjectCard(_CardBase):
         self.setCursor(Qt.PointingHandCursor)
         self._selected = False
 
+        # v1.7.0：项目内全部 HTML 文件
+        self.html_files: list[str] = list_html_files(project_dir)
+        self.selected_html: str = (
+            resolve_index(project_dir)
+            or (self.html_files[0] if self.html_files else "")
+        )
+
         lay = QVBoxLayout(self)
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(6)
@@ -165,11 +177,24 @@ class ProjectCard(_CardBase):
         self.name_label.setAlignment(Qt.AlignCenter)
         lay.addWidget(self.name_label)
 
-        entry = resolve_index(project_dir) or ""
-        entry_label = QLabel(entry)
-        entry_label.setProperty("muted", True)
-        entry_label.setAlignment(Qt.AlignCenter)
-        lay.addWidget(entry_label)
+        # 入口文件：多 HTML 时用下拉框，单一文件时保持纯标签
+        if len(self.html_files) > 1:
+            self.entry_combo = QComboBox()
+            self.entry_combo.setObjectName("cardEntry")
+            self.entry_combo.addItems(self.html_files)
+            self.entry_combo.setCurrentText(self.selected_html)
+            self.entry_combo.setToolTip("项目内包含多个 HTML，选择要预览/导出的页面")
+            self.entry_combo.currentTextChanged.connect(self._on_entry_changed)
+            lay.addWidget(self.entry_combo)
+            self.entry_label: QLabel | None = None
+        else:
+            self.entry_combo: QComboBox | None = None
+            entry_label = QLabel(self.selected_html)
+            entry_label.setProperty("muted", True)
+            entry_label.setAlignment(Qt.AlignCenter)
+            entry_label.setToolTip("项目入口 HTML 文件")
+            lay.addWidget(entry_label)
+            self.entry_label = entry_label
 
         # 主色色卡（异步填充）
         swatch_row = QHBoxLayout()
@@ -198,6 +223,17 @@ class ProjectCard(_CardBase):
         btn_browser.setToolTip("用系统默认浏览器打开该项目（可 F12 审查元素）")
         btns.addWidget(btn_browser, 1)
         lay.addLayout(btns)
+
+    # v1.7.0：下拉框切换入口 HTML
+    def _on_entry_changed(self, html_name: str) -> None:
+        if not html_name:
+            return
+        self.selected_html = html_name
+        self.activated.emit(self.project_dir)
+
+    def selected_html_path(self) -> str:
+        """当前选中的入口 HTML 完整路径。"""
+        return os.path.join(self.project_dir, self.selected_html)
 
     # ---- 背景 / 边框（悬停与选中以缓动系数插值）----
     def _bg_color(self) -> QColor:
@@ -230,7 +266,7 @@ class ProjectCard(_CardBase):
         bl = int(a.blue() + (b.blue() - a.blue()) * t)
         return QColor(r, g, bl)
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802
+    def mousePressEvent(self, event) -> None:
         self.activated.emit(self.project_dir)
         super().mousePressEvent(event)
 
@@ -297,7 +333,7 @@ class FolderCard(_CardBase):
     def _border_width(self) -> int:
         return 1 + int(round(self._hover))
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802
+    def mousePressEvent(self, event) -> None:
         self.entered.emit(self.folder)
         super().mousePressEvent(event)
 
@@ -377,6 +413,16 @@ class WorkspacePanel(QGroupBox):
 
     def active_project(self) -> str | None:
         return self._active
+
+    def selected_html_path(self, project_dir: str | None = None) -> str | None:
+        """返回项目当前选中的入口 HTML 完整路径（v1.7.0）。
+
+        project_dir 为空时取当前激活项目；找不到返回 None（调用方回退到目录）。
+        """
+        project = project_dir or self._active
+        if project and project in self._cards:
+            return self._cards[project].selected_html_path()
+        return None
 
     def set_workdir(self, path: str) -> None:
         path = os.path.abspath(path)
@@ -472,7 +518,7 @@ class WorkspacePanel(QGroupBox):
                 row += 1
         self._grid.setColumnStretch(cols, 0)
 
-    def resizeEvent(self, event) -> None:  # noqa: N802
+    def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if self._grid.count() and self._entries and self.isVisible():
             self._reflow()

@@ -2,7 +2,7 @@
 
 import os
 
-from gui.workspace_panel import WorkspacePanel
+from gui.workspace_panel import ProjectCard, WorkspacePanel
 
 
 def _make_project(root: str, name: str) -> str:
@@ -10,6 +10,16 @@ def _make_project(root: str, name: str) -> str:
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, "index.html"), "w", encoding="utf-8") as fh:
         fh.write("<!DOCTYPE html><html><body>hi</body></html>")
+    return d
+
+
+def _make_multi_html_project(root: str, name: str = "site-multi") -> str:
+    """v1.7.0：多个入口 HTML 的项目。"""
+    d = os.path.join(root, name)
+    os.makedirs(d, exist_ok=True)
+    for html in ("index.html", "index2.html", "index3.html"):
+        with open(os.path.join(d, html), "w", encoding="utf-8") as fh:
+            fh.write(f"<!DOCTYPE html><html><body>{html}</body></html>")
     return d
 
 
@@ -116,3 +126,39 @@ def test_reflow_narrow_panel_falls_back_columns(tmp_path):
     panel._grid.activate()
     assert panel._grid.count() == 5
     assert panel._grid.rowCount() >= 1
+
+
+def test_card_multi_html_lists_and_selects(tmp_path):
+    """v1.7.0：多 HTML 项目卡片提供下拉框，默认选中 index.html，可切换。"""
+    from PySide6.QtWidgets import QApplication, QComboBox
+
+    project = _make_multi_html_project(str(tmp_path))
+    app = QApplication.instance() or QApplication([])
+    card = ProjectCard(project)
+    app.processEvents()
+
+    assert card.html_files == ["index.html", "index2.html", "index3.html"]
+    assert card.selected_html == "index.html"
+    assert card.selected_html_path() == os.path.join(project, "index.html")
+    assert card.entry_combo is not None
+    assert card.entry_combo.count() == 3
+
+    card.entry_combo.setCurrentText("index2.html")
+    app.processEvents()
+    assert card.selected_html == "index2.html"
+    assert card.selected_html_path() == os.path.join(project, "index2.html")
+
+
+def test_card_single_html_keeps_label(tmp_path):
+    """v1.7.0：单 HTML 项目仍使用纯标签，不引入下拉框。"""
+    from PySide6.QtWidgets import QApplication
+
+    project = _make_project(str(tmp_path), "site-single")
+    app = QApplication.instance() or QApplication([])
+    card = ProjectCard(project)
+    app.processEvents()
+
+    assert card.html_files == ["index.html"]
+    assert card.entry_combo is None
+    assert card.entry_label is not None
+    assert card.selected_html_path() == os.path.join(project, "index.html")

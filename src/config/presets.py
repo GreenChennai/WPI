@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
@@ -93,22 +93,39 @@ def app_base_dir() -> str:
 
 
 def app_icon_path() -> str:
-    """应用图标资源路径（v1.6.0）：打包里兜底为 exe 同级 assets/，开发模式为仓库 assets/。"""
+    """应用图标资源路径（v1.7.0：多尺寸 ICO + PNG 兜底）。
+
+    打包里兜底为 exe 同级 assets/，开发模式为仓库 assets/。
+    返回首选 ICO；调用方可再按具体场合选用不同尺寸。
+    """
+    candidates = (
+        "WPI_256.ico", "WPI_128.ico", "WPI_64.ico",
+        "WPI_48.ico", "WPI_32.ico", "WPI.png",
+    )
     if getattr(sys, "frozen", False):
         meipass = getattr(sys, "_MEIPASS", app_base_dir())
-        candidates = (
-            os.path.join(meipass, "assets", "WPI.png"),
-            os.path.join(app_base_dir(), "assets", "WPI.png"),
-        )
+        for name in candidates:
+            for base in (meipass, app_base_dir()):
+                p = os.path.join(base, "assets", name)
+                if os.path.isfile(p):
+                    return p
     else:
-        candidates = (
-            os.path.join(app_base_dir(), "assets", "WPI.png"),
-            os.path.join(app_base_dir(), "assets", "WPI.ico"),
-        )
-    for p in candidates:
-        if os.path.isfile(p):
-            return p
+        for name in candidates:
+            p = os.path.join(app_base_dir(), "assets", name)
+            if os.path.isfile(p):
+                return p
     return ""
+
+
+def app_icons_dir() -> str:
+    """图标资源所在目录（assets/），供多尺寸 QIcon 组装。"""
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", app_base_dir())
+        for base in (meipass, app_base_dir()):
+            d = os.path.join(base, "assets")
+            if os.path.isdir(d):
+                return d
+    return os.path.join(app_base_dir(), "assets")
 
 
 def default_workspace_dir() -> str:

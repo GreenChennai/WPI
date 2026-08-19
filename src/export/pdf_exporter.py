@@ -19,7 +19,7 @@ def px_to_mm(px: float) -> float:
 class PDFExporter:
     @staticmethod
     def write(
-        page: "Page",
+        page: Page,
         path: str,
         width_px: int,
         height_px: int,

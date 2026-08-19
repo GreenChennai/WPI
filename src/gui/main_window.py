@@ -23,9 +23,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from config.settings import Settings
 from core.controller import Controller, ExportParams
 from core.static_server import StaticServer
-from config.settings import Settings
 from gui.export_panel import ExportPanel
 from gui.size_panel import SizePanel
 from gui.workspace_panel import WorkspacePanel
@@ -214,7 +214,13 @@ class MainWindow(QMainWindow):
     def _on_project_selected(self, project: str) -> None:
         self._active_project = project
         self.status_label.setText(f"当前项目：{os.path.basename(project)}")
-        self.export_panel.set_output_suggestion(os.path.dirname(project), os.path.basename(project))
+        # v1.7.0：多 HTML 时输出建议名取所选页面（如 index2 → index2.png）
+        source = self._selected_source(project)
+        if os.path.isfile(source):
+            stem = os.path.splitext(os.path.basename(source))[0]
+            self.export_panel.set_output_suggestion(os.path.dirname(source), stem)
+        else:
+            self.export_panel.set_output_suggestion(os.path.dirname(project), os.path.basename(project))
 
     # --------------------------------------------------------------- preview
     def _open_preview_current(self) -> None:
@@ -223,6 +229,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "请先在左侧选择 / 点击一个项目卡片。")
             return
         self._open_preview_for(project)
+
+    def _selected_source(self, project: str) -> str:
+        """v1.7.0：项目内多 HTML 时取卡片下拉框选中的入口；否则回退到项目目录。"""
+        path = self.workspace.selected_html_path(project)
+        return path or project
 
     def _open_preview_for(self, project: str) -> None:
         from gui.preview_window import PreviewWindow  # 延迟导入，加速启动
@@ -235,9 +246,10 @@ class MainWindow(QMainWindow):
             self._preview_win = None
 
         width = self.size_panel.get_width()
+        source = self._selected_source(project)
         win = PreviewWindow(self, width=width)
-        win.setWindowTitle(f"网页预览 - {os.path.basename(project)}")
-        win.load(project)
+        win.setWindowTitle(f"网页预览 - {os.path.basename(source)}")
+        win.load(source)
         win.destroyed.connect(lambda: setattr(self, "_preview_win", None))
         self._preview_win = win
         win.show()
@@ -247,14 +259,23 @@ class MainWindow(QMainWindow):
     # --------------------------------------------------------- browser open
     def _open_in_browser(self, project: str) -> None:
         """用系统默认浏览器打开项目静态服务地址（可 F12 审查元素）。"""
+        from core.static_server import resolve_index
+
+        source = self._selected_source(project)
+        if os.path.isfile(source):
+            base_dir = os.path.dirname(source)
+            rel = os.path.basename(source)
+        else:
+            base_dir = os.path.abspath(source)
+            rel = resolve_index(base_dir) or "index.html"
         try:
-            server = StaticServer(os.path.abspath(project))
+            server = StaticServer(base_dir)
             server.start()
         except OSError as exc:
             QMessageBox.critical(self, "打开失败", str(exc))
             return
         self._browser_servers.append(server)
-        url = server.base_url + "/" + "index.html"
+        url = server.base_url + "/" + rel
         threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
         self.status_label.setText(f"已在系统浏览器打开：{url}")
 
@@ -263,6 +284,9 @@ class MainWindow(QMainWindow):
         extra = self.export_panel.get_params()
         width, _height = self.size_panel.get_size()
         source = self._active_project or ""
+        # v1.7.0：项目内多 HTML 时导出下拉框选中的入口
+        if source:
+            source = self._selected_source(source)
         return ExportParams(
             source=source,
             format=extra["format"],
@@ -336,7 +360,7 @@ class MainWindow(QMainWindow):
         self.preview_btn.setEnabled(True)
         self._thread = None
 
-    def closeEvent(self, event) -> None:  # noqa: N802
+    def closeEvent(self, event) -> None:
         if self._preview_win is not None:
             self._preview_win.close()
             self._preview_win = None

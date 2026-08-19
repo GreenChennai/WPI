@@ -17,25 +17,35 @@ from config.presets import INDEX_FILENAMES
 class _QuietHandler(SimpleHTTPRequestHandler):
     """静默日志，避免控制台被请求日志刷屏。"""
 
-    def log_message(self, fmt, *args):  # noqa: A002
+    def log_message(self, fmt, *args):
         pass
 
 
-def resolve_index(directory: str) -> str | None:
-    """返回目录内优先使用的入口文件名（相对路径），找不到返回 None。"""
+def list_html_files(directory: str) -> list[str]:
+    """返回目录内全部 HTML 文件名（相对路径，按名称排序），不含时返回 []。"""
     try:
-        names = set(os.listdir(directory))
+        names = os.listdir(directory)
     except OSError:
-        return None
-    for name in INDEX_FILENAMES:
-        if name in names and os.path.isfile(os.path.join(directory, name)):
-            return name
-    htmls = sorted(
+        return []
+    return sorted(
         n for n in names
         if n.lower().endswith((".html", ".htm"))
         and os.path.isfile(os.path.join(directory, n))
     )
-    return htmls[0] if htmls else None
+
+
+def resolve_index(directory: str) -> str | None:
+    """返回目录内优先使用的入口文件名（相对路径），找不到返回 None。
+
+    v1.7.0：优先 index.html / index.htm，否则取排序后的第一个 HTML。
+    """
+    names = set(list_html_files(directory))
+    if not names:
+        return None
+    for name in INDEX_FILENAMES:
+        if name in names:
+            return name
+    return sorted(names)[0]
 
 
 class StaticServer:

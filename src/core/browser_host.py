@@ -13,7 +13,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 if TYPE_CHECKING:
-    from playwright.sync_api import Browser, Page, BrowserContext
+    from playwright.sync_api import Browser, BrowserContext, Page
 
 EDGE_PATHS = (
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -47,7 +47,7 @@ class BrowserHost:
         self._pw = None
         self._browser: Browser | None = None
 
-    def launch(self) -> "BrowserHost":
+    def launch(self) -> BrowserHost:
         if not self.channel:
             raise BrowserUnavailableError(
                 "未检测到系统浏览器内核（Microsoft Edge / Google Chrome）。\n"
@@ -71,7 +71,7 @@ class BrowserHost:
     def browser(self) -> Browser | None:
         return self._browser
 
-    def new_page(self, viewport: tuple[int, int]) -> tuple["BrowserContext", "Page"]:
+    def new_page(self, viewport: tuple[int, int]) -> tuple[BrowserContext, Page]:
         if self._browser is None:
             raise RuntimeError("浏览器尚未启动")
         width, height = viewport

@@ -47,12 +47,12 @@ def build_url(source: str, server) -> str:
 
 
 def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
-    from export.gif_exporter import GIFExporter
-    from export.pdf_exporter import PDFExporter
-    from export.png_exporter import PNGExporter
     from core.browser_host import BrowserHost
     from core.capture_engine import CaptureEngine
     from core.static_server import StaticServer
+    from export.gif_exporter import GIFExporter
+    from export.pdf_exporter import PDFExporter
+    from export.png_exporter import PNGExporter
 
     if not params.output_path:
         raise ValueError("未指定输出路径")
@@ -136,10 +136,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             _progress(98)
 
         elif params.format == "PNG":
-            _status("等待动画播放完毕…")
-            timed_out = not engine.wait_animation_finished(max_wait=params.max_wait)
-            if timed_out:
-                warnings.append("动画在设定上限内未完全结束，已按终帧导出")
+            # v1.7.0：PNG 直接导出页面当前（正常）状态，不等待动画播放
             if params.full_page:
                 _status("测量并导出整页内容…")
                 actual_w, _actual_h = engine.prepare_full_page(params.width, None)
@@ -157,10 +154,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             _progress(98)
 
         else:  # PDF
-            _status("等待动画播放完毕…")
-            timed_out = not engine.wait_animation_finished(max_wait=params.max_wait)
-            if timed_out:
-                warnings.append("动画在设定上限内未完全结束，已按终帧导出")
+            # v1.7.0：PDF 直接打印页面当前（正常）状态，不等待动画播放
             out_w, out_h = params.width, params.height
             if params.full_page:
                 _status("测量并打印整页内容…")

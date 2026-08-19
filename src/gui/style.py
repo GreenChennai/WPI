@@ -132,6 +132,21 @@ QPushButton#cardSecondary {{
 }}
 QPushButton#cardSecondary:hover {{ background: {T.SURFACE_HOVER}; }}
 
+/* v1.7.0：项目卡片内入口 HTML 下拉框（紧凑样式） */
+QComboBox#cardEntry {{
+    background: {T.WHITE};
+    border: 1px solid {T.INPUT_BORDER};
+    border-radius: {T.RADIUS_SM}px;
+    padding: 2px 4px;
+    font-size: 11px;
+}}
+QComboBox#cardEntry:focus {{ border-color: {T.ACCENT}; }}
+QComboBox#cardEntry::drop-down {{ border: none; width: 16px; }}
+QComboBox#cardEntry QAbstractItemView {{
+    font-size: 12px;
+    border-radius: {T.RADIUS_SM}px;
+}}
+
 /* ---------- 子目录卡片 / 主色色卡 ---------- */
 #workdirBox {{ background: {T.SURFACE}; }}
 #workdirBox QScrollArea, #workdirBox QScrollArea > QWidget > QWidget {{
@@ -211,7 +226,7 @@ QStatusBar {{ background: {T.WHITE}; border-top: 1px solid {T.BORDER}; }}
 
 def apply_object_names(widget) -> None:
     """给常见控件打上样式所需的对象名（主按钮等）。"""
-    pass  # 现由各控件直接 setObjectName
+    # 现由各控件直接 setObjectName
 
 
 def primary_style() -> str:

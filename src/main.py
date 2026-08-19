@@ -6,6 +6,8 @@ import argparse
 import os
 import sys
 
+from config.presets import app_icon_path, app_icons_dir
+
 
 def _suppress_child_consoles() -> None:
     """Windows 打包环境下，所有子进程（Playwright 驱动、FFmpeg 等）不再弹出 CMD 窗口。
@@ -31,6 +33,23 @@ def _suppress_child_consoles() -> None:
     if not getattr(_orig_init, "_wpi_silenced", False):
         _sp.Popen.__init__ = _popen_init
         _sp.Popen.__init__._wpi_silenced = True  # type: ignore[attr-defined]
+
+
+def _build_app_icon():
+    """v1.7.0：组装多尺寸 QIcon（32/48/64/128/256 + PNG 兜底），
+    让窗口 / 任务栏 / 通知区在不同 DPI 下都使用最合适的一枚。"""
+    from PySide6.QtGui import QIcon, QPixmap
+
+    icons_dir = app_icons_dir()
+    icon = QIcon()
+    for size in (32, 48, 64, 128, 256):
+        p = os.path.join(icons_dir, f"WPI_{size}.ico")
+        if os.path.isfile(p):
+            icon.addPixmap(QPixmap(p))
+    png = app_icon_path()
+    if (not png or icon.isNull()) and png and os.path.isfile(png):
+        icon.addPixmap(QPixmap(png))
+    return icon
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
@@ -178,10 +197,10 @@ def main() -> int:
         return _cmd_selfcheck(args)
 
     from PySide6.QtCore import Qt
-    from PySide6.QtGui import QFont, QIcon
+    from PySide6.QtGui import QFont
     from PySide6.QtWidgets import QApplication
 
-    from config.presets import APP_NAME, APP_TITLE, app_icon_path
+    from config.presets import APP_NAME, APP_TITLE
     from gui.style import build_stylesheet
 
     # QtWebEngine 沙箱兼容（单文件解包到临时目录时避免提权失败）
@@ -195,9 +214,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName(APP_TITLE)
-    icon_path = app_icon_path()
-    if icon_path:
-        app.setWindowIcon(QIcon(icon_path))
+    app.setWindowIcon(_build_app_icon())
     if os.name == "nt":
         app.setFont(QFont("Microsoft YaHei UI", 10))
     app.setStyleSheet(build_stylesheet())

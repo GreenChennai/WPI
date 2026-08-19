@@ -17,8 +17,15 @@ ROOT = os.path.dirname(SPECPATH)
 SRC_DIR = os.path.join(ROOT, "src")
 DEMO_DIR = os.path.join(ROOT, "examples", "demo")
 ASSETS_DIR = os.path.join(ROOT, "assets")
-ICON_ICO = os.path.join(ASSETS_DIR, "WPI.ico")
+ICON_ICO = os.path.join(ASSETS_DIR, "WPI_256.ico")   # EXE 图标（v1.7.0：多尺寸 ICO 全家桶）
 ICON_PNG = os.path.join(ASSETS_DIR, "WPI.png")
+
+# v1.7.0：全部尺寸图标一并打入包内，运行时按 DPI 选择最合适的一枚
+_ICON_SIZES = ("32", "48", "64", "128", "256")
+_ICON_DATAS = [(os.path.join(ASSETS_DIR, "WPI.png"), "assets")]
+_ICON_DATAS += [
+    (os.path.join(ASSETS_DIR, f"WPI_{s}.ico"), "assets") for s in _ICON_SIZES
+]
 
 block_cipher = None
 
@@ -107,10 +114,7 @@ a = Analysis(
     [os.path.join(SRC_DIR, "main.py")],
     pathex=[SRC_DIR],
     binaries=[(DEMO_DIR, "examples/demo")],
-    datas=[
-        (ICON_ICO, "assets"),
-        (ICON_PNG, "assets"),
-    ],
+    datas=_ICON_DATAS,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
