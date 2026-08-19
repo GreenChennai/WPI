@@ -92,7 +92,10 @@ def smoke_test(build_root: str, exe: str) -> None:
     for name, extra in cases:
         out = os.path.join(build_root, name)
         cmd = [exe, "--export", "--source", DEMO_DIR, "--output", out, *extra]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=300,
+        )
         if proc.returncode != 0:
             raise RuntimeError(f"smoke {name} failed rc={proc.returncode}\n{proc.stdout}\n{proc.stderr}")
         if not os.path.isfile(out) or os.path.getsize(out) == 0:
@@ -104,7 +107,8 @@ def smoke_test(build_root: str, exe: str) -> None:
     # QtWebEngine 首次启动偶发 GPU 子进程竞争 → 自动重试一次。
     for attempt in (1, 2):
         proc = subprocess.run(
-            [exe, "--wc-check"], capture_output=True, text=True, timeout=120
+            [exe, "--wc-check"], capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=120,
         )
         if proc.returncode == 0:
             break

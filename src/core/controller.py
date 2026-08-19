@@ -81,7 +81,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         _progress(25)
 
         _status("渲染页面…")
-        engine = CaptureEngine.load(browser, url, (params.width, params.height))
+        engine = CaptureEngine.load(browser, url, (params.width, params.width))
         warnings.extend(engine.collect_resource_warnings())
         _progress(40)
 
@@ -97,7 +97,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             "format": params.format,
             "path": params.output_path,
             "width": params.width,
-            "height": params.height,
+            "height": params.width,
             "warnings": warnings,
             "frames": 1,
         }
@@ -162,7 +162,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
 
         else:  # PDF
             # v1.8.0：导出前已 settle，此处直接打印完整呈现后的页面当前状态。
-            out_w, out_h = params.width, params.height
+            out_w, out_h = params.width, params.width
             if params.full_page:
                 _status("测量并打印整页内容…")
                 out_w, out_h = engine.prepare_full_page(params.width, None)
