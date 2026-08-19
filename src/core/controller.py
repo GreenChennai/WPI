@@ -10,6 +10,8 @@ import os
 import urllib.parse
 from dataclasses import dataclass, field
 
+from config.presets import GIF_MAX_FRAMES
+
 
 @dataclass
 class ExportParams:
@@ -129,8 +131,8 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         if params.format == "GIF":
             # v2.3.0：与 PNG 尺寸语义一致——只限制宽度，高度为网页自然内容
             # 高度（整页逐帧，captureBeyondViewport）；用户启用高度锁定时只录制
-            # 顶部锁定区域（视口高=锁定值）。settle() 已触发 reveal 动画并回顶，
-            # 整页可见无需滚动，不再出现 800×800 正方形 + 滚动录制。
+            # 顶部锁定区域。settle 流程已触发 reveal 展开。
+            # v2.4.0：early_stop=False 录满 max_wait 时长，播放速度 = 真实时间。
             _status("录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
@@ -139,6 +141,8 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             frames, times = engine.capture_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
+                max_frames=GIF_MAX_FRAMES,
+                early_stop=False,
                 full_page=not (params.height > 0),
                 on_frame=_on_frame,
             )
@@ -174,13 +178,19 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             frames, times = engine.capture_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
+                early_stop=False,          # v2.4.0：录满 max_wait 时长
                 full_page=not (params.height > 0),
                 on_frame=_on_frame,
             )
             _status("编码 MP4…")
+            # v2.4.0：整页截图耗时可能大于 1/fps 间隔，按实际采集时间计算输出
+            # 帧率，保证视频时长 = 设定时长、播放速度 = 真实时间（不快进）
+            eff_fps = float(params.fps)
+            if len(times) > 1 and times[-1] > times[0]:
+                eff_fps = max(1.0, (len(times) - 1) / (times[-1] - times[0]))
             mp4 = MP4Exporter().write(
                 frames, params.output_path,
-                fps=params.fps, use_ffmpeg=params.use_ffmpeg,
+                fps=eff_fps, use_ffmpeg=params.use_ffmpeg,
             )
             fw, fh = frames[0].size
             result["width"] = fw
@@ -197,7 +207,9 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                 # v2.2.0：高度锁定 —— 只导出顶部锁定高度范围内的内容
                 _status("按锁定高度导出…")
                 image = engine.capture_highres(
-                    height_css=int(params.height), transparent=params.transparent
+                    height_css=int(params.height),
+                    transparent=params.transparent,
+                    scale=params.scale,
                 )
                 result["width"] = image.size[0]
                 result["height"] = image.size[1]
@@ -206,9 +218,12 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                 _status("测量并导出整页内容…")
                 actual_w, _actual_h = engine.prepare_full_page(params.width, None)
                 # v2.2.0：4X/8X 高倍率下 captureBeyondViewport 单拍受 Chromium
-                # 最大截图尺寸限制会截断组件 → 改分块滚动截图 + 拼接
+                # 最大截图尺寸限制会截断组件 → 改分块滚动截图 + 拼接；
+                # v2.4.0：capture_highres 内部对未超上限的页面仍单拍优先
                 if params.scale > 2:
-                    image = engine.capture_highres(transparent=params.transparent)
+                    image = engine.capture_highres(
+                        transparent=params.transparent, scale=params.scale
+                    )
                 else:
                     image = engine.capture_final_frame(
                         transparent=params.transparent, full_page=True

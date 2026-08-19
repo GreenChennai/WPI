@@ -13,6 +13,10 @@ from typing import TYPE_CHECKING
 
 from PIL import Image
 
+# v2.4.0：本软件会自产高倍率大图（4X/8X 整页可超 1 亿像素），放开 PIL
+# 防炸弹像素上限（此前 178M 上限会误报 DecompressionBombError）。
+Image.MAX_IMAGE_PIXELS = None
+
 from config.presets import (
     ANIMATION_INFINITE_WAIT,
     ANIMATION_MAX_WAIT,
@@ -124,6 +128,7 @@ class CaptureEngine:
         self,
         height_css: int | None = None,
         transparent: bool = False,
+        scale: int = 1,
     ) -> Image.Image:
         """分块截图 + 纵向拼接（v2.3.0 重做，替代 v2.2.0 的滚动+手工裁切）。
 
@@ -135,7 +140,12 @@ class CaptureEngine:
 
         height_css=None 时捕获整页；给定值时只捕获顶部 min(内容高, height_css)
         高度（高度锁定，超出不导出）。
-        注意：分块截图会使 position:fixed/sticky 元素在每块重复出现（取舍）。
+
+        v2.4.0 优化：
+        1) **单拍优先**——内容高×倍率在安全上限内时直接 captureBeyondViewport
+           单拍（fixed/sticky 元素只画一次、无拼接、无接缝）；
+        2) 确需分块时，非首块临时 `visibility:hidden` 掉 position:fixed 元素，
+           拼接后恢复，顶部状态栏不再在每块拼接处重复出现。
         """
         vw = self.page.viewport_size
         W = max(1, int(vw["width"]))
@@ -143,8 +153,14 @@ class CaptureEngine:
         total = self.content_height()
         if height_css is not None:
             total = min(total, max(1, int(height_css)))
+        # v2.4.0：单拍优先——整页像素尺寸未超安全上限时一次拍全
+        # （fixed/sticky 只画一次、无拼接），否则分块
+        scale_f = max(1, int(scale or 1))
+        if height_css is None and (W * scale_f) <= 15000 and (total * scale_f) <= 15000:
+            return self.capture_final_frame(transparent=transparent, full_page=True)
         chunks: list[Image.Image] = []
         y = 0
+        first = True
         while y < total:
             try:
                 self.page.evaluate("(y) => window.scrollTo(0, y)", y)
@@ -161,6 +177,11 @@ class CaptureEngine:
             if take <= 0:
                 y += H
                 continue
+            if first:
+                self._toggle_fixed_elements(False)   # 首块显示固定元素（页面顶部）
+                first = False
+            else:
+                self._toggle_fixed_elements(True)    # 非首块隐藏，避免拼接重复
             shot = self.page.screenshot(
                 clip={"x": 0, "y": rel, "width": W, "height": take},
                 omit_background=transparent,
@@ -171,6 +192,7 @@ class CaptureEngine:
                 )
             )
             y += H
+        self._toggle_fixed_elements(False)     # 恢复 fixed 元素可见性
         try:
             self.page.evaluate("() => window.scrollTo(0, 0)")
         except Exception:
@@ -189,6 +211,30 @@ class CaptureEngine:
             canvas.paste(c, (0, ty))
             ty += c.size[1]
         return canvas
+
+    def _toggle_fixed_elements(self, hide: bool) -> None:
+        """v2.4.0：临时隐藏/恢复页面内 position:fixed 元素（拼接去重）。
+
+        分块拼接时 fixed 元素（顶部状态栏/悬浮按钮等）会随每块滚动重复出现；
+        非首块截图前隐藏它们、结束后恢复，使 fixed 元素只在首块（页面顶部）
+        出现一次，行为与 captureBeyondViewport 单拍一致。visibility 隐藏保持布局。
+        """
+        try:
+            self.page.evaluate(
+                """(hide) => {
+                    for (const el of document.querySelectorAll('*')) {
+                        try {
+                            if (getComputedStyle(el).position === 'fixed') {
+                                el.style.setProperty('visibility',
+                                    hide ? 'hidden' : '', 'important');
+                            }
+                        } catch (e) {}
+                    }
+                }""",
+                bool(hide),
+            )
+        except Exception:
+            pass
 
     def prepare_full_page(self, width: int | None, height: int | None) -> tuple[int, int]:
         """按导出目标尺寸设置视口，返回页面实际内容尺寸。
@@ -383,20 +429,25 @@ class CaptureEngine:
         self,
         fps: int,
         max_wait: float = ANIMATION_MAX_WAIT,
-        max_frames: int = GIF_MAX_FRAMES,
+        max_frames: int | None = None,
         stable_frames: int = ANIMATION_STABLE_FRAMES,
+        early_stop: bool = True,   # v2.4.0：False 时录满 max_wait 时长
         full_page: bool = False,
         on_frame=None,
     ) -> tuple[list[Image.Image], list[float]]:
-        """从头到尾录制动画帧序列（GIF 用）。
+        """录制动画帧序列（GIF / MP4 用）。
 
-        首帧立即采样，随后以 1/fps 间隔采样；当 `getAnimations()` 中有限动画
-        全部停止 且 画面连续 stable_frames 次不变时提前结束，达到 max_frames /
-        max_wait 上限则截断（v1.3.0：无限循环动画不阻塞等待）。
+        首帧立即采样，随后以 1/fps 间隔实时采样（播放速度 = 真实时间）。
+        early_stop=True 时：有限动画全部停止且画面连续 stable_frames 次不变即
+        提前结束（适合等待动画播完）；early_stop=False 时：录制满 max_wait
+        秒（帧数 = max_wait×fps，受 max_frames 上限约束）——保证视频/GIF 时长
+        与用户设定的「动画时长上限」一致（v2.4.0）。
         full_page=True 时逐帧捕获整页（captureBeyondViewport 单拍，不撑爆 vh）。
         返回 (帧序列, 各帧采集时刻秒)。
         """
         interval = 1.0 / max(1, int(fps))
+        if max_frames is None:
+            max_frames = int(max_wait * max(1, int(fps))) + 2
         frames: list[Image.Image] = [
             self.capture_final_frame(full_page=full_page)
         ]
@@ -411,15 +462,16 @@ class CaptureEngine:
             times.append(time.monotonic())
             if on_frame is not None:
                 on_frame(len(frames))
-            h = self._fast_hash(frame)
-            finite, _infinite = self.animation_running_counts()
-            if finite == 0 and h == prev:
-                stable += 1
-                if stable >= stable_frames:
-                    break
-            else:
-                stable = 0
-            prev = h
+            if early_stop:
+                h = self._fast_hash(frame)
+                finite, _infinite = self.animation_running_counts()
+                if finite == 0 and h == prev:
+                    stable += 1
+                    if stable >= stable_frames:
+                        break
+                else:
+                    stable = 0
+                prev = h
             if len(frames) >= max_frames:
                 break
         return frames, times

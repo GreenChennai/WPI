@@ -42,7 +42,7 @@ class MP4Exporter:
                 frame.save(os.path.join(td, f"frame_{i:05d}.png"))
             cmd = [
                 self.ffmpeg, "-y", "-loglevel", "error",
-                "-framerate", str(max(1, int(fps))),
+                "-framerate", str(round(float(fps), 3)),
                 "-i", os.path.join(td, "frame_%05d.png"),
                 "-c:v", "libx264",
                 "-crf", "0",           # 无损
