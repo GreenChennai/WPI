@@ -349,6 +349,66 @@ class CaptureEngine:
                 break
         return frames, times
 
+    def capture_scroll_frames(
+        self,
+        fps: int,
+        max_wait: float = ANIMATION_MAX_WAIT,
+        stable_frames: int = ANIMATION_STABLE_FRAMES,
+        on_frame=None,
+    ) -> tuple[list[Image.Image], list[float]]:
+        """滚动逐帧录制整页（GIF / MP4 用，v2.0.0 需求 6）。
+
+        从头到尾缓慢滚动视口，自然触发 reveal-on-scroll 入场动画（元素进入
+        视口才播放），并覆盖页面全部内容，解决「只录到顶部标题、下方是背景
+        色块」的问题。首帧先停在顶部以捕获首屏英雄动画，随后在 max_wait 时长
+        内均匀滚到底。返回 (帧序列, 各帧采集时刻秒)。
+        """
+        vh = self.page.evaluate("() => window.innerHeight || 600")
+        total = self.page.evaluate(
+            "() => Math.max(document.documentElement.scrollHeight, "
+            "document.body ? document.body.scrollHeight : 0) || 0"
+        )
+        interval = 1.0 / max(1, int(fps))
+        max_frames = max(int(max_wait * fps), 8)
+        frames: list[Image.Image] = [self.capture_final_frame(full_page=False)]
+        times: list[float] = [time.monotonic()]
+        if on_frame is not None:
+            on_frame(1)
+        # 页面很短（视口已容纳全部内容）：停在顶部录制动画 max_wait 时长即可
+        if total <= vh:
+            deadline = time.monotonic() + max_wait
+            while time.monotonic() < deadline and len(frames) < max_frames:
+                time.sleep(interval)
+                frame = self.capture_final_frame(full_page=False)
+                frames.append(frame)
+                times.append(time.monotonic())
+                if on_frame is not None:
+                    on_frame(len(frames))
+            try:
+                self.page.evaluate("() => window.scrollTo(0, 0)")
+            except Exception:
+                pass
+            return frames, times
+        # 长页面：在 max_wait 内均匀滚动到底，捕获滚动过程与逐段入场动画
+        for i in range(1, max_frames):
+            p = i / (max_frames - 1)
+            y = int(total * p)
+            try:
+                self.page.evaluate("(y) => window.scrollTo(0, y)", y)
+            except Exception:
+                pass
+            time.sleep(interval)
+            frame = self.capture_final_frame(full_page=False)
+            frames.append(frame)
+            times.append(time.monotonic())
+            if on_frame is not None:
+                on_frame(len(frames))
+        try:
+            self.page.evaluate("() => window.scrollTo(0, 0)")
+        except Exception:
+            pass
+        return frames, times
+
     def collect_resource_warnings(self) -> list[str]:
         """收集外链资源加载失败的提醒（设计文档 13：支持外链但失败需提醒）。"""
         failed = self.page.evaluate(

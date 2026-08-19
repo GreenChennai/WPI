@@ -27,6 +27,10 @@ _ICON_DATAS += [
     (os.path.join(ASSETS_DIR, f"WPI_{s}.ico"), "assets") for s in _ICON_SIZES
 ]
 
+# v2.0.0：下拉箭头 PNG 资源（src/gui/assets → 包内 gui/assets，供 QSS image:url() 引用）
+_GUI_ASSETS_DIR = os.path.join(SRC_DIR, "gui", "assets")
+_ICON_DATAS += [(_GUI_ASSETS_DIR, "gui/assets")]
+
 block_cipher = None
 
 # ---------------------------------------------------------------------------

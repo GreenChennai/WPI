@@ -52,11 +52,30 @@ def _build_app_icon():
     return icon
 
 
+def _attach_parent_console() -> None:
+    """windowed 冻结态下把输出接到父控制台，让 CLI 模式输出可见（v2.0.0）。
+
+    PyInstaller `--windowed` 的进程没有控制台；通过 --export 从命令行调用时，
+    挂到父进程（cmd/PowerShell）的控制台上以打印进度与结果。
+    """
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.AttachConsole(-1)  # ATTACH_PARENT_PROCESS
+        sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+        sys.stderr = sys.stdout
+    except Exception:
+        pass
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     from core.controller import ExportParams, run_export_sync
 
+    _attach_parent_console()  # v2.0.0：无 GUI 导出时控制台输出可见
     fmt = (args.format or "PNG").upper()
-    if fmt not in ("PNG", "GIF", "PDF"):
+    if fmt not in ("PNG", "GIF", "MP4", "PDF"):
         print(f"不支持的格式: {fmt}", file=sys.stderr)
         return 2
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
@@ -157,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wc-check", action="store_true", help="WebEngine 打包自检（冒烟测试）")
     parser.add_argument("--source", help="源 HTML 文件或目录")
     parser.add_argument("--output", help="输出文件路径")
-    parser.add_argument("--format", choices=["PNG", "GIF", "PDF"], help="导出格式")
+    parser.add_argument("--format", choices=["PNG", "GIF", "MP4", "PDF"], help="导出格式")
     parser.add_argument("--width", type=int, default=1080)
     parser.add_argument("--fps", type=int, default=15)
     parser.add_argument("--loop", type=int, default=0)
@@ -212,6 +231,21 @@ def main() -> int:
     if os.name == "nt":
         app.setFont(QFont("Microsoft YaHei UI", 10))
     app.setStyleSheet(build_stylesheet())
+
+    # v2.0.0：单实例锁 —— 软件只允许打开一个实例
+    from PySide6.QtCore import QLockFile, QStandardPaths
+
+    _lock_path = os.path.join(
+        QStandardPaths.writableLocation(QStandardPaths.TempLocation),
+        "wpi-single-instance.lock",
+    )
+    _SINGLE_INSTANCE_LOCK = QLockFile(_lock_path)
+    _SINGLE_INSTANCE_LOCK.setStaleLockTime(0)  # 崩溃残留锁不永久阻塞
+    if not _SINGLE_INSTANCE_LOCK.tryLock(100):
+        from PySide6.QtWidgets import QMessageBox
+
+        QMessageBox.warning(None, "提示", "WPI 已在运行中，不能重复打开。")
+        return 0
 
     from gui.main_window import MainWindow
 

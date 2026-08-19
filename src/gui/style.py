@@ -2,40 +2,29 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
 from . import tokens as T
 
 
-def _down_arrow_data_uri(color: str, size: int = 12) -> str:
-    """生成一枚朝下箭头（chevron）的 PNG data URI，供 QSS 下拉图标使用。
+def _arrow_path(name: str) -> str:
+    """返回下拉箭头 PNG 资源的绝对路径（QSS image:url() 对绝对路径可靠，
+    对 base64 data URI 不可靠，故改用真实文件，v2.0.0 重做 v1.8.0 的修复）。
 
-    QSS 的 url() 在内置资源不可用时难以解析相对路径；用 base64 data URI
-    内联可保证打包前后都能稳定显示下拉箭头（v1.8.0）。
+    开发模式取 src/gui/assets；PyInstaller 单文件模式取打包内的 gui/assets。
     """
-    from io import BytesIO
-
-    from PIL import Image, ImageDraw
-
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    col = tuple(int(color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)) + (255,)
-    lw = max(1, size // 8)
-    top = int(size * 0.32)
-    bottom = int(size * 0.68)
-    mid_x = size // 2
-    left = int(size * 0.26)
-    right = int(size * 0.74)
-    draw.line([(left, top), (mid_x, bottom)], fill=col, width=lw)
-    draw.line([(mid_x, bottom), (right, top)], fill=col, width=lw)
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    import base64 as _b64
-
-    return "data:image/png;base64," + _b64.b64encode(buf.getvalue()).decode("ascii")
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+        cand = os.path.join(base, "gui", "assets", name)
+    else:
+        cand = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", name)
+    return cand.replace("\\", "/")
 
 
 def build_stylesheet() -> str:
-    arrow = _down_arrow_data_uri(T.TEXT_MUTED, 12)
-    arrow_sm = _down_arrow_data_uri(T.TEXT_MUTED, 10)
+    arrow = _arrow_path("down_arrow.png")
+    arrow_sm = _arrow_path("down_arrow_sm.png")
     return f"""
 * {{ font-family: {T.FONT_FAMILY}; font-size: {T.FONT_SIZE_BODY}px; color: {T.TEXT_STRONG}; }}
 

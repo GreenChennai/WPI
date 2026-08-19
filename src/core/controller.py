@@ -49,6 +49,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
     from core.capture_engine import CaptureEngine
     from core.static_server import StaticServer
     from export.gif_exporter import GIFExporter
+    from export.mp4_exporter import MP4Exporter
     from export.pdf_exporter import PDFExporter
     from export.png_exporter import PNGExporter
 
@@ -68,11 +69,19 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
     warnings: list[str] = list(params.extra_warnings)
 
     try:
-        _status("启动本地静态服务…")
-        server = StaticServer(params.source if os.path.isdir(params.source)
-                              else os.path.dirname(os.path.abspath(params.source)))
-        server.start()
-        url = build_url(params.source, server)
+        is_url = isinstance(params.source, str) and params.source.startswith(
+            ("http://", "https://")
+        )
+        if is_url:
+            # v2.0.0：在线网站直接以 URL 加载，无需本地静态服务
+            url = params.source
+            _status("连接在线网站…")
+        else:
+            _status("启动本地静态服务…")
+            server = StaticServer(params.source if os.path.isdir(params.source)
+                                  else os.path.dirname(os.path.abspath(params.source)))
+            server.start()
+            url = build_url(params.source, server)
         _progress(8)
 
         _status("启动系统浏览器内核…")
@@ -103,19 +112,16 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         }
 
         if params.format == "GIF":
-            if params.full_page:
-                _status("按网页实际内容高度调整视口…")
-                width, height = engine.prepare_full_page(params.width, None)
-                _progress(45)
-            _status("录制动画帧…")
+            # v2.0.0：滚动逐帧录制整页（触发 reveal-on-scroll 入场动画并覆盖
+            # 全部内容），解决「只录到顶部标题、下方是背景色块」的问题。
+            _status("滚动录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
-                _progress(min(80, 45 + n))
+                _progress(min(85, 45 + n))
 
-            frames, times = engine.capture_frames(
+            frames, times = engine.capture_scroll_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
-                full_page=params.full_page,
                 on_frame=_on_frame,
             )
             durations = []
@@ -133,12 +139,36 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                 use_ffmpeg=params.use_ffmpeg,
             )
             fw, fh = frames[0].size
-            result["width"] = width if params.full_page else fw
-            result["height"] = height if params.full_page else fh
+            result["width"] = fw
+            result["height"] = fh
             result["frames"] = gif["frames"]
             result["encoder"] = gif["encoder"]
             result["duration_ms"] = sum(durations)
-            result["full_page"] = params.full_page
+            _progress(98)
+
+        elif params.format == "MP4":
+            # v2.0.0：与 GIF 共用滚动录制，再用 FFmpeg 编码为 H.264 MP4
+            _status("滚动录制整页动画帧…")
+
+            def _on_frame(n: int) -> None:
+                _progress(min(85, 45 + n))
+
+            frames, times = engine.capture_scroll_frames(
+                fps=params.fps,
+                max_wait=params.max_wait,
+                on_frame=_on_frame,
+            )
+            _status("编码 MP4…")
+            mp4 = MP4Exporter().write(
+                frames, params.output_path,
+                fps=params.fps, use_ffmpeg=params.use_ffmpeg,
+            )
+            fw, fh = frames[0].size
+            result["width"] = fw
+            result["height"] = fh
+            result["frames"] = len(frames)
+            result["encoder"] = mp4["encoder"]
+            result["duration_ms"] = int(round((times[-1] - times[0]) * 1000)) if len(times) > 1 else 0
             _progress(98)
 
         elif params.format == "PNG":
@@ -160,7 +190,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             result["warnings"] = warnings
             _progress(98)
 
-        else:  # PDF
+        elif params.format == "PDF":
             # v1.8.0：导出前已 settle，此处直接打印完整呈现后的页面当前状态。
             out_w, out_h = params.width, params.width
             if params.full_page:
@@ -188,6 +218,19 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             server.stop()
 
 
+def _unique_path(path: str) -> str:
+    """目标文件已存在时追加 _1/_2... 数字后缀，避免覆盖同名文件（v2.0.0）。"""
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    i = 1
+    while True:
+        cand = f"{base}_{i}{ext}"
+        if not os.path.exists(cand):
+            return cand
+        i += 1
+
+
 def run_batch_sync(
     params_list: list[ExportParams],
     progress=None,
@@ -196,6 +239,7 @@ def run_batch_sync(
     """批量导出：依次导出 params_list 中的每一项（v1.9.0 多选批量导出）。
 
     任一文件失败即停止并向上抛出（遇错停止、成功继续，由调用方回报）。
+    重名文件自动追加数字后缀，不覆盖（v2.0.0）。
     返回 {"batch": True, "results": [...], "count": N}。
     """
     total = len(params_list)
@@ -204,6 +248,7 @@ def run_batch_sync(
         stem = os.path.basename(params.source)
         if status is not None:
             status(f"导出 {i + 1}/{total}: {stem}")
+        params.output_path = _unique_path(params.output_path)
         res = run_export_sync(
             params,
             progress=(

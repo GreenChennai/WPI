@@ -77,3 +77,18 @@ def test_export_params_full_page_default():
 def test_export_params_full_page_off():
     p = ExportParams(source="x.html", format="PNG", full_page=False)
     assert p.full_page is False
+
+
+def test_unique_path_adds_suffix(tmp_path):
+    from core.controller import _unique_path
+
+    target = str(tmp_path / "out.png")
+    # 目标不存在 → 原样返回
+    assert _unique_path(target) == target
+    # 目标存在 → 依次取 out_1.png / out_2.png
+    open(target, "w").close()
+    p1 = _unique_path(target)
+    assert p1.endswith("out_1.png")
+    open(p1, "w").close()
+    p2 = _unique_path(target)
+    assert p2.endswith("out_2.png")

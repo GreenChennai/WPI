@@ -6,12 +6,14 @@ import os
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QSpinBox,
@@ -24,7 +26,7 @@ from config.presets import (
     FILE_EXTENSIONS,
     FORMATS,
     GIF_FPS,
-    GIF_FPS_RANGE,
+    GIF_FPS_PRESETS,
     GIF_LOOP,
 )
 
@@ -55,27 +57,42 @@ class ExportPanel(QWidget):
         out_row.addWidget(browse_btn)
         form.addRow("输出文件", out_row)
 
-        # ---- GIF 参数组
-        self.gif_group = QGroupBox("GIF 参数", self)
+        # ---- 动画参数组（GIF / MP4 共用）
+        self.gif_group = QGroupBox("动画参数", self)
         gform = QFormLayout(self.gif_group)
-        self.fps_spin = QSpinBox()
-        self.fps_spin.setRange(*GIF_FPS_RANGE)
-        self.fps_spin.setValue(GIF_FPS)
-        self.fps_spin.setSuffix(" fps")
-        self.fps_spin.valueChanged.connect(self._changed)
-        gform.addRow("帧率", self.fps_spin)
 
+        self.fps_combo = QComboBox()
+        for f in GIF_FPS_PRESETS:
+            self.fps_combo.addItem(f"{f} fps", f)
+        if GIF_FPS not in GIF_FPS_PRESETS:  # 默认帧率不在预设里时补上
+            self.fps_combo.addItem(f"{GIF_FPS} fps", GIF_FPS)
+        self.fps_combo.setCurrentText(f"{GIF_FPS} fps")
+        self.fps_combo.currentIndexChanged.connect(self._changed)
+        gform.addRow("帧率", self.fps_combo)
+
+        # 循环：开关「无限循环」默认开启；关闭时启用数字输入框（最小 1）
+        self.loop_widget = QWidget(self)
+        lw = QHBoxLayout(self.loop_widget)
+        lw.setContentsMargins(0, 0, 0, 0)
+        lw.addWidget(QLabel("循环次数"))
+        self.loop_chk = QCheckBox("无限循环")
+        self.loop_chk.setChecked(GIF_LOOP == 0)
+        self.loop_chk.setToolTip("开启 = 无限循环；关闭 = 指定循环次数（最小 1）")
+        self.loop_chk.toggled.connect(self._on_loop_toggled)
         self.loop_spin = QSpinBox()
-        self.loop_spin.setRange(0, 100)
-        self.loop_spin.setValue(GIF_LOOP)
-        self.loop_spin.setSpecialValueText("0 (无限循环)")
+        self.loop_spin.setRange(1, 1000)
+        self.loop_spin.setValue(1)
+        self.loop_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # v2.0.0：去掉丑陋的 +/- 步进按钮
         self.loop_spin.valueChanged.connect(self._changed)
-        gform.addRow("循环次数", self.loop_spin)
+        lw.addWidget(self.loop_chk)
+        lw.addWidget(self.loop_spin)
+        gform.addRow(self.loop_widget)
 
         self.maxwait_spin = QSpinBox()
         self.maxwait_spin.setRange(1, 120)
         self.maxwait_spin.setValue(15)
         self.maxwait_spin.setSuffix(" 秒")
+        self.maxwait_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # v2.0.0
         self.maxwait_spin.setToolTip("动画最长录制/等待时间")
         self.maxwait_spin.valueChanged.connect(self._changed)
         gform.addRow("动画时长上限", self.maxwait_spin)
@@ -118,8 +135,8 @@ class ExportPanel(QWidget):
         return {
             "format": fmt,
             "output_path": self.output_edit.text().strip(),
-            "fps": self.fps_spin.value(),
-            "loop": self.loop_spin.value(),
+            "fps": int(self.fps_combo.currentData()),
+            "loop": 0 if self.loop_chk.isChecked() else self.loop_spin.value(),
             "max_wait": float(self.maxwait_spin.value()),
             "transparent": self.transparent_check.isChecked(),
             "paper": self.paper_combo.currentData(),
@@ -147,13 +164,19 @@ class ExportPanel(QWidget):
 
     def _format_changed(self, _=None) -> None:
         fmt = self.format_combo.currentText()
-        self.gif_group.setVisible(fmt == "GIF")
+        # 动画参数组 GIF / MP4 共用；循环次数仅 GIF 需要（MP4 无循环概念）
+        self.gif_group.setVisible(fmt in ("GIF", "MP4"))
+        self.loop_widget.setVisible(fmt == "GIF")
         self.png_group.setVisible(fmt == "PNG")
         self.pdf_group.setVisible(fmt == "PDF")
         if self.output_edit.text().strip():
             path = self.output_edit.text().strip()
             root, _ext = os.path.splitext(path)
             self.output_edit.setText(root + FILE_EXTENSIONS[fmt])
+        self._changed()
+
+    def _on_loop_toggled(self, checked: bool) -> None:
+        self.loop_spin.setEnabled(not checked)
         self._changed()
 
     def _browse(self) -> None:

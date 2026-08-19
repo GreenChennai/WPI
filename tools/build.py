@@ -19,7 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(ROOT, "src")
 DEMO_DIR = os.path.join(ROOT, "examples", "demo")
 DEFAULT_OUT_BASE = r"E:\平日资料\构建"
-SEMVER = "1.9.0"
+SEMVER = "2.0.0"
 
 # v1.5.0：PySide6 仅实际使用 QtWidgets/QtGui/QtCore/QtNetwork + QtWebEngine 链路。
 # 其余 Qt 模块（多媒体/3D/图表/位置/PDF/虚拟键盘等）排除逻辑已内置于
@@ -51,6 +51,28 @@ def clean_dirs() -> None:
             shutil.rmtree(path, ignore_errors=True)
 
 
+def _find_ffmpeg_src() -> str | None:
+    """在常见构建目录中找一个可用的 ffmpeg.exe（供 GIF/MP4 编码打包）。"""
+    candidates = [
+        os.path.join(os.path.dirname(ROOT), "构建", "MomentShift-v0.9.0", "ffmpeg.exe"),
+        os.path.join(ROOT, "tools", "ffmpeg.exe"),
+    ]
+    # 也扫描 构建 目录下较新的 MomentShift 构建
+    try:
+        build_root = os.path.join(os.path.dirname(ROOT), "构建")
+        if os.path.isdir(build_root):
+            for name in sorted(os.listdir(build_root), reverse=True):
+                p = os.path.join(build_root, name, "ffmpeg.exe")
+                if os.path.isfile(p):
+                    candidates.append(p)
+    except Exception:
+        pass
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
 def build_exe(build_root: str) -> str:
     stub = os.path.join(build_root, "_stub")
     os.makedirs(stub, exist_ok=True)
@@ -68,6 +90,14 @@ def build_exe(build_root: str) -> str:
     if not os.path.isfile(exe):
         raise FileNotFoundError(f"PyInstaller 未产出: {exe}")
     shutil.move(exe, os.path.join(build_root, "WPI.exe"))
+    # v2.0.0：随包附带 ffmpeg（GIF 调色板 / MP4 编码需要），放在 exe 同级目录，
+    # 运行时由 export.gif_exporter.find_ffmpeg 经 app_dir() 自动发现。
+    ff = _find_ffmpeg_src()
+    if ff:
+        shutil.copy2(ff, os.path.join(build_root, "ffmpeg.exe"))
+        print(f"bundled ffmpeg: {ff}")
+    else:
+        print("WARNING: 未找到 ffmpeg，GIF/MP4 编码可能回退或失败")
     shutil.rmtree(stub, ignore_errors=True)
     return os.path.join(build_root, "WPI.exe")
 
@@ -87,6 +117,7 @@ def smoke_test(build_root: str, exe: str) -> None:
     cases = (
         ("smoke.png", ["--format", "PNG", "--width", "1080"]),
         ("smoke.gif", ["--format", "GIF", "--width", "1080", "--fps", "10"]),
+        ("smoke.mp4", ["--format", "MP4", "--width", "1080", "--fps", "10"]),
         ("smoke.pdf", ["--format", "PDF", "--width", "1080"]),
     )
     for name, extra in cases:

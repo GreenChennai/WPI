@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "1.9.0"
+VERSION = "2.0.0"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
@@ -24,13 +24,15 @@ DEFAULT_WIDTH = 1080
 # ---------------------------------------------------------------------------
 # 导出默认值（设计文档 4.5 / 8）
 # ---------------------------------------------------------------------------
-FORMATS = ("PNG", "GIF", "PDF")
+FORMATS = ("PNG", "GIF", "MP4", "PDF")
 DEFAULT_FORMAT = "PNG"
-FILE_EXTENSIONS = {"PNG": ".png", "GIF": ".gif", "PDF": ".pdf"}
+FILE_EXTENSIONS = {"PNG": ".png", "GIF": ".gif", "MP4": ".mp4", "PDF": ".pdf"}
 
+# v2.0.0：GIF / MP4 共用的帧率预设与上限
 GIF_FPS = 15
-GIF_LOOP = 0            # 0 = 无限循环
-GIF_FPS_RANGE = (1, 30)
+GIF_FPS_PRESETS = (15, 24, 30, 48, 60)
+GIF_FPS_RANGE = (1, 60)   # v2.0.0：帧率上限由 30 提到 60
+GIF_LOOP = 0            # 0 = 无限循环（默认开关开启）
 GIF_MAX_FRAMES = 240    # GIF 截取上限帧数（风险对策）
 
 PNG_TRANSPARENT = False

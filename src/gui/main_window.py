@@ -141,6 +141,9 @@ class MainWindow(QMainWindow):
         self.export_panel = ExportPanel(right)
         right_layout.addWidget(self.size_panel)
         right_layout.addWidget(self.export_panel)
+        # v2.0.0：在线网站预览 / 浏览器打开
+        self.size_panel.onlinePreview.connect(self._open_preview_online)
+        self.size_panel.onlineBrowser.connect(self._open_browser_online)
 
         # 更换目录按钮位于右侧设置栏下方（调用左侧工作目录的选择）
         self.chdir_btn = QPushButton("更换目录…")
@@ -298,6 +301,31 @@ class MainWindow(QMainWindow):
         threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
         self.status_label.setText(f"已在系统浏览器打开：{url}")
 
+    # ------------------------------------------------ v2.0.0 在线网站（URL）
+    def _open_preview_online(self, url: str) -> None:
+        from gui.preview_window import PreviewWindow  # 延迟导入，加速启动
+
+        if self._preview_win is not None:
+            if self._preview_win.isVisible():
+                self._preview_win.raise_()
+                self._preview_win.activateWindow()
+                return
+            self._preview_win = None
+
+        width = self.size_panel.get_width()
+        win = PreviewWindow(self, width=width)
+        win.setWindowTitle(f"网页预览 - {url}")
+        win.load("", url_override=url)  # url_override 时不启用本地静态服务
+        win.destroyed.connect(lambda: setattr(self, "_preview_win", None))
+        self._preview_win = win
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    def _open_browser_online(self, url: str) -> None:
+        threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
+        self.status_label.setText(f"已在系统浏览器打开：{url}")
+
     # --------------------------------------------------------------- export
     def _build_params(self, source: str, output_path: str) -> ExportParams:
         extra = self.export_panel.get_params()
@@ -314,6 +342,22 @@ class MainWindow(QMainWindow):
         )
 
     def _run_export(self) -> None:
+        # v2.0.0：填写了在线网站地址时，优先导出该在线网站（URL 源）
+        online_url = self.size_panel.get_online_url()
+        if online_url:
+            if self._thread is not None and self._thread.isRunning():
+                QMessageBox.information(self, "提示", "已有导出任务进行中。")
+                return
+            output_path = self.export_panel.get_output_path()
+            if not output_path:
+                QMessageBox.warning(self, "提示", "请选择导出文件路径。")
+                return
+            params_list = [self._build_params(online_url, output_path)]
+            self._start_export_worker(
+                params_list, "导出中…", f"准备导出在线网站… {online_url}"
+            )
+            return
+
         # v1.9.0：导出当前多选集合（普通点击=单选；Ctrl/Shift 多选=批量）
         entries = self.workspace.export_entries()
         if not entries:
@@ -350,8 +394,12 @@ class MainWindow(QMainWindow):
                 )
             label = f"批量导出中…({len(params_list)})"
 
+        self._start_export_worker(params_list, label, "准备导出…")
+
+    def _start_export_worker(self, params_list: list, label: str, status_text: str) -> None:
+        """统一启动导出工作线程（本地 / 在线 / 批量共用，v2.0.0 提取）。"""
         self.progress.setValue(0)
-        self.status_label.setText("准备导出…")
+        self.status_label.setText(status_text)
         self.export_btn.setText(label)
         self.export_btn.setEnabled(False)
         self.preview_btn.setEnabled(False)
@@ -373,6 +421,21 @@ class MainWindow(QMainWindow):
         if result.get("batch"):
             results = result.get("results", [])
             n = len(results)
+            if n == 1:
+                # v2.0.0：单选也走批量通道，按单文件提示「导出完成」而非「批量导出完成」
+                r = results[0]
+                msgs = [
+                    f"导出完成: {os.path.basename(r['path'])}\n"
+                    f"尺寸 {r['width']} × {r['height']}  {r['format']}"
+                ]
+                if r.get("frames", 1) > 1:
+                    msgs.append(f"帧数 {r['frames']}")
+                if r.get("encoder"):
+                    msgs.append(f"编码器: {r['encoder']}")
+                for w in result.get("warnings", []):
+                    msgs.append(f"提醒: {w}")
+                QMessageBox.information(self, "完成", "\n".join(msgs))
+                return
             lines = [f"批量导出完成：{n} 个文件"]
             for r in results[:15]:
                 lines.append(
