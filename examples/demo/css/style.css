@@ -1,0 +1,103 @@
+:root {
+  --wpi: #4a6cf7;
+  --wpi-dark: #2b3fd1;
+  --bg: #ffffff;
+  --ink: #1d2233;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.6;
+}
+
+.hero {
+  padding: 48px 32px 40px;
+  text-align: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--wpi), var(--wpi-dark));
+  /* 渐变背景动画：约 3.2s 后停 */
+  animation: gradient 2.8s ease;
+}
+
+.hero h1 {
+  font-size: 34px;
+  margin: 12px 0 6px;
+}
+
+.hero .sub { opacity: 0.92; font-size: 15px; }
+
+.hero .logo { width: 64px; height: 64px; }
+
+@keyframes gradient {
+  0% { filter: hue-rotate(0deg) saturate(0.3); }
+  50% { filter: hue-rotate(120deg) saturate(1); }
+  100% { filter: hue-rotate(0deg) saturate(1); }
+}
+
+.hero h1, .hero .sub, .hero .logo {
+  opacity: 0;
+  animation: fadeUp 0.9s ease forwards;
+}
+.hero .logo { animation-delay: 0.15s; }
+.hero h1 { animation-delay: 0.35s; }
+.hero .sub { animation-delay: 0.55s; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+main { padding: 28px 32px 36px; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.card {
+  border: 1px solid #e2e5f0;
+  border-radius: 12px;
+  padding: 18px 20px;
+  background: #f8f9ff;
+}
+
+.card h2 { font-size: 17px; color: var(--wpi-dark); margin-bottom: 6px; }
+.card p { font-size: 13px; color: #555; }
+
+.stage {
+  margin-top: 26px;
+  background: #f9fbff;
+  border: 1px dashed #cdd6f0;
+  border-radius: 12px;
+  padding: 18px;
+  text-align: center;
+}
+
+/* CSS 弹性小球动画：约 3.6s 后停止于初始位置 */
+.ball {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #ffd166, #f76b4a);
+  margin: 8px auto 4px;
+  animation: bounce 0.45s ease-in-out 8 alternate;
+}
+
+@keyframes bounce {
+  from { transform: translateY(0) scaleX(1); }
+  to { transform: translateY(-34px) scaleX(0.94); }
+}
+
+footer {
+  padding: 14px;
+  text-align: center;
+  font-size: 14px;
+  color: #666;
+  background: #f0f2fa;
+  border-top: 1px solid #e0e4f2;
+}

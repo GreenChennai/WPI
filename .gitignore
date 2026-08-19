@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+
+# PyInstaller-generated spec (repo's active spec lives in tools/wpi.spec)
+/WPI.spec
+
+# PyInstaller onefile output on Windows
+WPI*.exe
+_stub/
+
+# Editor / OS
+.idea/
+.vscode/
+*.pyc
+Thumbs.db
+.DS_Store
+
+# Local settings (created at runtime next to the exe / repo)
+WPI_settings.json

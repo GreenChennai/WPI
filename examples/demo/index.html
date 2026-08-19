@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>WPI Demo 示例页</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="hero">
+    <img class="logo" src="assets/logo.svg" alt="WPI Logo" />
+    <h1>Website Page to Image</h1>
+    <p class="sub">HTML + CSS + JS → PNG / GIF / PDF</p>
+  </header>
+
+  <main>
+    <section class="cards">
+      <div class="card">
+        <h2>尺寸系统</h2>
+        <p>固定宽 / 固定高 / 固定宽高，预设 3:4 · 1:1 · 4:3。</p>
+      </div>
+      <div class="card">
+        <h2>动画捕获</h2>
+        <p>完整播放动画，GIF 全帧录制，PNG/PDF 取终帧。</p>
+      </div>
+      <div class="card">
+        <h2>系统内核</h2>
+        <p>调用系统 Edge / Chrome，单文件可执行。</p>
+      </div>
+    </section>
+
+    <section class="stage">
+      <div class="ball"></div>
+      <canvas id="stage" width="360" height="120"></canvas>
+    </section>
+  </main>
+
+  <footer id="footer">动画载入中…</footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
