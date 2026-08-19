@@ -17,6 +17,7 @@ v1.8.0：
 from __future__ import annotations
 
 import os
+import urllib.parse
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -27,8 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.controller import build_url
-from core.static_server import StaticServer
+from core.static_server import resolve_index, shared_server
 
 
 class PreviewWindow(QMainWindow):
@@ -37,7 +37,6 @@ class PreviewWindow(QMainWindow):
     def __init__(self, parent=None, width: int | None = None):
         super().__init__(parent)
         self.setWindowTitle("网页预览")
-        self._server: StaticServer | None = None
         self._width = width
         self._pending_content_width: int | None = width  # 待校正的目标内容宽度
 
@@ -117,25 +116,27 @@ class PreviewWindow(QMainWindow):
         self._addr.setPlaceholderText(f"加载中… {pct}%")
 
     def load(self, source: str, url_override: str | None = None) -> None:
-        """加载本地源（HTML 文件或目录）。自动启动/复用本地静态服务。"""
-        if self._server is not None:
-            self._server.stop()
-            self._server = None
+        """加载本地源（HTML 文件或目录）或在线 URL。
+
+        v2.1.0：本地源统一挂载到进程内唯一的共享静态服务（单端口），
+        切换项目时调用 mount() 切换挂载目录，不再为每个预览开新端口。
+        """
         if url_override:
             url = url_override
         else:
-            mount = (
-                source if os.path.isdir(source)
-                else os.path.dirname(os.path.abspath(source))
-            )
-            self._server = StaticServer(mount)
-            self._server.start()
-            url = build_url(source, self._server)
+            srv = shared_server()
+            srv.ensure_started()
+            if os.path.isdir(source):
+                mount = os.path.abspath(source)
+                rel = resolve_index(mount) or "index.html"
+            else:
+                mount = os.path.dirname(os.path.abspath(source))
+                rel = os.path.basename(source)
+            srv.mount(mount)
+            url = srv.base_url + "/" + urllib.parse.quote(rel)
         self._view.load(url)
 
     def closeEvent(self, event) -> None:
         self._view.setPage(None)
-        if self._server is not None:
-            self._server.stop()
-            self._server = None
+        # 共享静态服务由主窗口统一在退出时停止（v2.1.0）
         super().closeEvent(event)

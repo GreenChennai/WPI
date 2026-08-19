@@ -43,8 +43,9 @@ class CaptureEngine:
         url: str,
         viewport: tuple[int, int],
         load_timeout_ms: int = 30000,
+        device_scale: int = 1,   # v2.1.0：分辨率倍率（原生渲染，非超分）
     ) -> CaptureEngine:
-        context, page = browser.new_page(viewport)
+        context, page = browser.new_page(viewport, device_scale_factor=device_scale)
         page.goto(url, wait_until="load", timeout=load_timeout_ms)
         try:
             page.wait_for_load_state("networkidle", timeout=3000)

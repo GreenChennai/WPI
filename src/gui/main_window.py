@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
 from config.presets import FILE_EXTENSIONS
 from config.settings import Settings
 from core.controller import Controller, ExportParams
-from core.static_server import StaticServer
 from gui.export_panel import ExportPanel
 from gui.size_panel import SizePanel
 from gui.workspace_panel import WorkspacePanel
@@ -39,7 +38,6 @@ class MainWindow(QMainWindow):
         self.resize(1380, 800)
         self._thread: QThread | None = None
         self._preview_win = None
-        self._browser_servers: list[StaticServer] = []
         self._active_project: str | None = None
 
         self._loading: QWidget | None = None
@@ -280,8 +278,11 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------- browser open
     def _open_in_browser(self, project: str) -> None:
-        """用系统默认浏览器打开项目静态服务地址（可 F12 审查元素）。"""
-        from core.static_server import resolve_index
+        """用系统默认浏览器打开项目（可 F12 审查元素）。
+
+        v2.1.0：挂载到进程内唯一的共享静态服务（单端口），切换项目即切换目录。
+        """
+        from core.static_server import resolve_index, shared_server
 
         source = self._selected_source(project)
         if os.path.isfile(source):
@@ -291,13 +292,13 @@ class MainWindow(QMainWindow):
             base_dir = os.path.abspath(source)
             rel = resolve_index(base_dir) or "index.html"
         try:
-            server = StaticServer(base_dir)
-            server.start()
+            srv = shared_server()
+            srv.ensure_started()
+            srv.mount(base_dir)
         except OSError as exc:
             QMessageBox.critical(self, "打开失败", str(exc))
             return
-        self._browser_servers.append(server)
-        url = server.base_url + "/" + rel
+        url = srv.base_url + "/" + rel
         threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
         self.status_label.setText(f"已在系统浏览器打开：{url}")
 
@@ -334,6 +335,7 @@ class MainWindow(QMainWindow):
             source=source,
             format=extra["format"],
             width=width,
+            scale=self.size_panel.get_scale(),   # v2.1.0：分辨率倍率
             fps=extra["fps"],
             loop=extra["loop"],
             transparent=extra["transparent"],
@@ -480,9 +482,13 @@ class MainWindow(QMainWindow):
         if self._preview_win is not None:
             self._preview_win.close()
             self._preview_win = None
-        for server in self._browser_servers:
-            server.stop()
-        self._browser_servers.clear()
+        # v2.1.0：唯一共享静态服务在退出时统一停止
+        try:
+            from core.static_server import shared_server
+
+            shared_server().stop()
+        except Exception:
+            pass
         if self._thread is not None and self._thread.isRunning():
             self._thread.quit()
             self._thread.wait(3000)

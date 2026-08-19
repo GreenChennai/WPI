@@ -71,13 +71,17 @@ class BrowserHost:
     def browser(self) -> Browser | None:
         return self._browser
 
-    def new_page(self, viewport: tuple[int, int]) -> tuple[BrowserContext, Page]:
+    def new_page(
+        self,
+        viewport: tuple[int, int],
+        device_scale_factor: float = 1,
+    ) -> tuple[BrowserContext, Page]:
         if self._browser is None:
             raise RuntimeError("浏览器尚未启动")
         width, height = viewport
         context = self._browser.new_context(
             viewport={"width": width, "height": height},
-            device_scale_factor=1,
+            device_scale_factor=device_scale_factor,
         )
         page = context.new_page()
         return context, page

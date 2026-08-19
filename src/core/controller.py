@@ -13,9 +13,10 @@ from dataclasses import dataclass, field
 
 @dataclass
 class ExportParams:
-    source: str                     # HTML 文件路径 或 目录
-    format: str = "PNG"             # PNG / GIF / PDF
+    source: str                     # HTML 文件路径 / 目录 / http(s):// URL
+    format: str = "PNG"             # PNG / GIF / MP4 / PDF
     width: int = 1080
+    scale: int = 1                  # v2.1.0：分辨率倍率（原生渲染，X1/X2/X4/X8）
     fps: int = 15
     loop: int = 0
     transparent: bool = False
@@ -90,7 +91,9 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         _progress(25)
 
         _status("渲染页面…")
-        engine = CaptureEngine.load(browser, url, (params.width, params.width))
+        engine = CaptureEngine.load(
+            browser, url, (params.width, params.width), device_scale=params.scale
+        )
         warnings.extend(engine.collect_resource_warnings())
         _progress(40)
 
@@ -180,11 +183,13 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                 image = engine.capture_final_frame(
                     transparent=params.transparent, full_page=True
                 )
-                result["width"] = actual_w
+                result["width"] = image.size[0]
                 result["height"] = image.size[1]
                 result["full_page"] = True
             else:
                 image = engine.capture_final_frame(transparent=params.transparent)
+                result["width"] = image.size[0]
+                result["height"] = image.size[1]
             _status("编码 PNG…")
             PNGExporter.write(image, params.output_path, transparent=params.transparent)
             result["warnings"] = warnings

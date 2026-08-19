@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config.presets import DEFAULT_WIDTH, WIDTH_PRESETS
+from config.presets import DEFAULT_SCALE, DEFAULT_WIDTH, SCALE_PRESETS, WIDTH_PRESETS
 
 
 class SizePanel(QWidget):
@@ -57,6 +57,18 @@ class SizePanel(QWidget):
         self.unit.setProperty("muted", True)
         row.addWidget(self.unit)
         form.addRow("宽度", row)
+
+        # ---- v2.1.0：分辨率倍率（原生渲染放大，非超分）
+        scale_row = QHBoxLayout()
+        self.scale_combo = QComboBox()
+        for s in SCALE_PRESETS:
+            self.scale_combo.addItem(f"X{s}", s)
+        self.scale_combo.setCurrentText(f"X{DEFAULT_SCALE}")
+        self.scale_combo.setToolTip(
+            "原生渲染倍率：页面仍按设定宽度布局，输出分辨率 × 倍率（布局与比例不变）"
+        )
+        scale_row.addWidget(self.scale_combo, 1)
+        form.addRow("分辨率倍率", scale_row)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -94,6 +106,10 @@ class SizePanel(QWidget):
 
     def set_width(self, width: int) -> None:
         self.width_combo.setCurrentText(str(int(width)))
+
+    # v2.1.0：分辨率倍率
+    def get_scale(self) -> int:
+        return int(self.scale_combo.currentData())
 
     # v2.0.0：在线网站
     def get_online_url(self) -> str:

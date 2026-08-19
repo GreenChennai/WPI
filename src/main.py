@@ -83,6 +83,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
         source=args.source,
         format=fmt,
         width=args.width,
+        scale=args.scale,
         fps=args.fps,
         loop=args.loop,
         transparent=args.transparent,
@@ -178,6 +179,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", help="输出文件路径")
     parser.add_argument("--format", choices=["PNG", "GIF", "MP4", "PDF"], help="导出格式")
     parser.add_argument("--width", type=int, default=1080)
+    parser.add_argument("--scale", type=int, choices=[1, 2, 4, 8], default=1,
+                        help="分辨率倍率（原生渲染放大，X1/X2/X4/X8）")
     parser.add_argument("--fps", type=int, default=15)
     parser.add_argument("--loop", type=int, default=0)
     parser.add_argument("--max-wait", type=float, dest="max_wait")

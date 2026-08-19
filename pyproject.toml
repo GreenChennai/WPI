@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wpi"
-version = "2.0.0"
+version = "2.1.0"
 description = "Website Page to Image - 将前端网页渲染导出为 PNG/GIF/MP4/PDF"
 readme = "README.md"
 requires-python = ">=3.11"
