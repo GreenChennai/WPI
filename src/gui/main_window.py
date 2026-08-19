@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from config.presets import FILE_EXTENSIONS
 from config.settings import Settings
 from core.controller import Controller, ExportParams
 from core.static_server import StaticServer
@@ -128,6 +129,7 @@ class MainWindow(QMainWindow):
         self.workspace.projectSelected.connect(self._on_project_selected)
         self.workspace.previewRequested.connect(self._open_preview_for)
         self.workspace.browserRequested.connect(self._open_in_browser)
+        self.workspace.selectionChanged.connect(self._on_selection_changed)
         splitter.addWidget(self.workspace)
 
         # 右：设置区
@@ -222,6 +224,23 @@ class MainWindow(QMainWindow):
         else:
             self.export_panel.set_output_suggestion(os.path.dirname(project), os.path.basename(project))
 
+    # v1.9.0：多选集合变化 → 动态按钮标签 + 多选禁用预览
+    def _on_selection_changed(self, projects: list) -> None:
+        n = len(projects)
+        self.preview_btn.setEnabled(n <= 1)  # 多选时「预览当前项目」不可用
+        if n >= 2:
+            self.export_btn.setText(f"批量导出 ({n})")
+        else:
+            self.export_btn.setText("导出")
+        if n == 0:
+            self.status_label.setText("就绪")
+        elif n == 1:
+            self.status_label.setText(f"已选择 1 个项目：{os.path.basename(projects[0])}")
+        else:
+            self.status_label.setText(
+                f"已选择 {n} 个项目（Shift 连选 / Ctrl 多选）"
+            )
+
     # --------------------------------------------------------------- preview
     def _open_preview_current(self) -> None:
         project = self._active_project
@@ -280,48 +299,66 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"已在系统浏览器打开：{url}")
 
     # --------------------------------------------------------------- export
-    def _collect_params(self) -> ExportParams:
+    def _build_params(self, source: str, output_path: str) -> ExportParams:
         extra = self.export_panel.get_params()
-        width, _height = self.size_panel.get_size()
-        source = self._active_project or ""
-        # v1.7.0：项目内多 HTML 时导出下拉框选中的入口
-        if source:
-            source = self._selected_source(source)
+        width = self.size_panel.get_width()
         return ExportParams(
             source=source,
             format=extra["format"],
             width=width,
-            height=width,  # v1.2.0：高度跟随网页实际内容长度
             fps=extra["fps"],
             loop=extra["loop"],
             transparent=extra["transparent"],
-            output_path=extra["output_path"],
+            output_path=output_path,
             max_wait=extra["max_wait"],
-            full_page=extra["full_page"],
         )
 
     def _run_export(self) -> None:
-        params = self._collect_params()
-        source = params.source
-        if not source or not os.path.exists(source):
-            QMessageBox.warning(self, "提示", "请先在左侧选择 / 点击一个项目卡片。")
-            return
-        if not params.output_path:
-            QMessageBox.warning(self, "提示", "请选择导出文件路径。")
+        # v1.9.0：导出当前多选集合（普通点击=单选；Ctrl/Shift 多选=批量）
+        entries = self.workspace.export_entries()
+        if not entries:
+            QMessageBox.warning(
+                self, "提示",
+                "请先在左侧选择 / 点击一个项目卡片"
+                "（可 Ctrl 单选、Shift 连选进行批量导出）。",
+            )
             return
         if self._thread is not None and self._thread.isRunning():
             QMessageBox.information(self, "提示", "已有导出任务进行中。")
             return
 
+        output_path = self.export_panel.get_output_path()
+        fmt = self.export_panel.get_format()
+        ext = FILE_EXTENSIONS[fmt]
+
+        if len(entries) == 1:
+            if not output_path:
+                QMessageBox.warning(self, "提示", "请选择导出文件路径。")
+                return
+            params_list = [self._build_params(entries[0], output_path)]
+            label = "导出中…"
+        else:
+            # 批量：以输出路径所在目录为目标文件夹，每个 HTML 单独成文件
+            out_dir = os.path.dirname(output_path) if output_path else ""
+            if not out_dir or not os.path.isdir(out_dir):
+                out_dir = os.path.dirname(entries[0])
+            params_list = []
+            for src in entries:
+                stem = os.path.splitext(os.path.basename(src))[0]
+                params_list.append(
+                    self._build_params(src, os.path.join(out_dir, stem + ext))
+                )
+            label = f"批量导出中…({len(params_list)})"
+
         self.progress.setValue(0)
         self.status_label.setText("准备导出…")
-        self.export_btn.setText("导出中…")
+        self.export_btn.setText(label)
         self.export_btn.setEnabled(False)
         self.preview_btn.setEnabled(False)
 
         self._thread = QThread(self)
         self._export_worker = Controller()
-        self._export_worker.set_params(params)
+        self._export_worker.set_params_list(params_list)
         self._export_worker.moveToThread(self._thread)
         self._thread.started.connect(self._export_worker.run)
         self._export_worker.progress.connect(self.progress.setValue)
@@ -333,6 +370,21 @@ class MainWindow(QMainWindow):
 
     def _on_export_done(self, result: dict) -> None:
         self._finish_busy()
+        if result.get("batch"):
+            results = result.get("results", [])
+            n = len(results)
+            lines = [f"批量导出完成：{n} 个文件"]
+            for r in results[:15]:
+                lines.append(
+                    f"· {os.path.basename(r['path'])}  "
+                    f"{r['width']}×{r['height']} {r['format']}"
+                )
+            if n > 15:
+                lines.append(f"…等共 {n} 个文件")
+            for w in result.get("warnings", []):
+                lines.append(f"提醒: {w}")
+            QMessageBox.information(self, "完成", "\n".join(lines))
+            return
         path = result["path"]
         msgs = [
             f"导出完成: {os.path.basename(path)}\n"
@@ -355,10 +407,11 @@ class MainWindow(QMainWindow):
         )
 
     def _finish_busy(self) -> None:
-        self.export_btn.setText("导出")
         self.export_btn.setEnabled(True)
         self.preview_btn.setEnabled(True)
         self._thread = None
+        # 依据当前多选状态刷新按钮标签 / 预览可用性（v1.9.0）
+        self._on_selection_changed(self.workspace.selected_projects())
 
     def closeEvent(self, event) -> None:
         if self._preview_win is not None:

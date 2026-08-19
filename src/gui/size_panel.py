@@ -66,11 +66,6 @@ class SizePanel(QWidget):
             return DEFAULT_WIDTH
         return max(1, min(v, 99999))
 
-    def get_size(self) -> tuple[int, int]:
-        """导出尺寸：宽度取设定值，高度交由实际内容长度决定（表达为 (w, w)）。"""
-        w = self.get_width()
-        return (w, w)
-
     def set_width(self, width: int) -> None:
         self.width_combo.setCurrentText(str(int(width)))
 

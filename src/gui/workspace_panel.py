@@ -22,6 +22,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -151,6 +152,8 @@ class ProjectCard(_CardBase):
     previewRequested = Signal(str)
     browserRequested = Signal(str)
     activated = Signal(str)
+    # v1.9.0：卡片鼠标点击（project_dir, ctrl 按下, shift 按下）→ 多选逻辑
+    clicked = Signal(str, bool, bool)
 
     def __init__(self, project_dir: str, parent=None):
         super().__init__(parent)
@@ -159,6 +162,8 @@ class ProjectCard(_CardBase):
         self.setFixedSize(_CARD_SIZE, _CARD_SIZE)
         self.setCursor(Qt.PointingHandCursor)
         self._selected = False
+        self._multi = False        # v1.9.0：当前是否处于多选（≥2）态，决定蓝/绿配色
+        self._export_all = False   # v1.9.0：是否导出项目内全部 HTML
 
         # v1.7.0：项目内全部 HTML 文件
         self.html_files: list[str] = list_html_files(project_dir)
@@ -178,7 +183,15 @@ class ProjectCard(_CardBase):
         lay.addWidget(self.name_label)
 
         # 入口文件：多 HTML 时用下拉框，单一文件时保持纯标签
+        self.export_all_check: QCheckBox | None = None
         if len(self.html_files) > 1:
+            # v1.9.0：位于下拉框之前，勾选后导出该项目内全部 HTML
+            self.export_all_check = QCheckBox("导出全部 HTML")
+            self.export_all_check.setObjectName("cardCheck")
+            self.export_all_check.setToolTip("勾选后批量导出该项目内的每一个 HTML 文件")
+            self.export_all_check.toggled.connect(self._on_export_all_toggled)
+            lay.addWidget(self.export_all_check)
+
             self.entry_combo = QComboBox()
             self.entry_combo.setObjectName("cardEntry")
             self.entry_combo.addItems(self.html_files)
@@ -235,28 +248,37 @@ class ProjectCard(_CardBase):
         """当前选中的入口 HTML 完整路径。"""
         return os.path.join(self.project_dir, self.selected_html)
 
-    # ---- 背景 / 边框（悬停与选中以缓动系数插值）----
+    # v1.9.0：勾选「导出全部 HTML」后，导出项目内每一个 HTML 文件
+    def _on_export_all_toggled(self, checked: bool) -> None:
+        self._export_all = bool(checked)
+
+    def export_htmls(self) -> list[str]:
+        """返回待导出的 HTML 完整路径列表。
+
+        勾选「导出全部 HTML」且项目含多个 HTML 时返回全部；
+        否则仅返回当前选中的入口 HTML。
+        """
+        if self._export_all and len(self.html_files) > 1:
+            return [os.path.join(self.project_dir, h) for h in self.html_files]
+        return [self.selected_html_path()]
+
+    # ---- 背景 / 边框（悬停与选中以缓动系数插值；v1.9.0 绿/蓝选中色）----
     def _bg_color(self) -> QColor:
+        if self._selected:
+            return QColor(T.SELECT_FILL_MULTI if self._multi else T.SELECT_FILL_SINGLE)
         base = QColor(T.WHITE)
         tint = QColor(T.ACCENT_TINT_BG)
-        return self._selection_color(base, tint)
+        return self._lerp(base, tint, self._hover * 0.55)
 
     def _border_color(self) -> QColor:
+        if self._selected:
+            return QColor(T.SELECT_BORDER_MULTI if self._multi else T.SELECT_BORDER_SINGLE)
         base = QColor(T.BORDER)
         ho = QColor(T.ACCENT)
-        if self._selected:
-            return QColor(T.ACCENT)
         return self._lerp(base, ho, self._hover)
 
     def _border_width(self) -> int:
         return 2 if self._selected else 1 + int(round(self._hover))
-
-    def _selection_color(self, base: QColor, tint: QColor) -> QColor:
-        """选中时向强调色浅底过渡，悬停时向强调色过渡。"""
-        strength = 1.0 if self._selected else self._hover * 0.55
-        c = base
-        c = self._lerp(c, tint, strength)
-        return c
 
     @staticmethod
     def _lerp(a: QColor, b: QColor, t: float) -> QColor:
@@ -267,13 +289,18 @@ class ProjectCard(_CardBase):
         return QColor(r, g, bl)
 
     def mousePressEvent(self, event) -> None:
-        self.activated.emit(self.project_dir)
+        from PySide6.QtWidgets import QApplication
+        mods = QApplication.keyboardModifiers()
+        ctrl = bool(mods & Qt.ControlModifier)
+        shift = bool(mods & Qt.ShiftModifier)
+        self.clicked.emit(self.project_dir, ctrl, shift)
         super().mousePressEvent(event)
 
-    def set_selected(self, selected: bool) -> None:
-        if self._selected == selected:
+    def set_selected(self, selected: bool, multi: bool = False) -> None:
+        if self._selected == selected and self._multi == multi:
             return
         self._selected = selected
+        self._multi = multi
         self.update()
 
     def set_palette(self, colors: tuple[str, ...] | list[str]) -> None:
@@ -344,6 +371,7 @@ class WorkspacePanel(QGroupBox):
     browserRequested = Signal(str)  # 系统浏览器打开
     paletteReady = Signal(str, object)  # (project_dir, colors) 后台线程回传
     workdirChanged = Signal(str)    # v1.4.0：工作目录切换（供设置记忆）
+    selectionChanged = Signal(list) # v1.9.0：多选集合变化（项目 dir 列表）
 
     def __init__(self, parent=None):
         super().__init__("工作目录", parent)
@@ -355,6 +383,9 @@ class WorkspacePanel(QGroupBox):
         self._entries: list = []         # v1.4.0：保序存放当前渲染条目
         self._last_cols: int = -1        # v1.8.0：重排守卫（列数未变则跳过）
         self._last_entries: object | None = None
+        self._selected_projects: set[str] = set()  # v1.9.0：多选集合
+        self._anchor: str | None = None             # v1.9.0：Shift 连选锚点
+        self._multi: bool = False                   # v1.9.0：是否处于多选（≥2）态
 
         root = QVBoxLayout(self)
         root.setContentsMargins(T.SPACE_LG, T.SPACE_SM, T.SPACE_LG, T.SPACE_LG)
@@ -377,14 +408,22 @@ class WorkspacePanel(QGroupBox):
         nav.addStretch(1)
         root.addLayout(nav)
 
+        # 空状态容器：纵向 + 横向居中显示提示（v1.9.0 居中修复）
+        self._empty_container = QWidget()
+        self._empty_container.setObjectName("emptyBox")
+        self._empty_layout = QVBoxLayout(self._empty_container)
+        self._empty_layout.setContentsMargins(0, 0, 0, 0)
+        self._empty_layout.addStretch(1)
         self.empty_label = QLabel("该目录下暂无可用项目。\n"
                                   "把包含 index.html 的网页项目文件夹放入工作目录，\n"
                                   "或点击上方子目录进入继续搜索。")
         self.empty_label.setProperty("secondary", True)
         self.empty_label.setWordWrap(True)
         self.empty_label.setAlignment(Qt.AlignCenter)
-        self.empty_label.setVisible(False)
-        root.addWidget(self.empty_label)
+        self._empty_layout.addWidget(self.empty_label, 0, Qt.AlignHCenter | Qt.AlignVCenter)
+        self._empty_layout.addStretch(1)
+        self._empty_container.setVisible(False)
+        root.addWidget(self._empty_container, 1)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -400,7 +439,7 @@ class WorkspacePanel(QGroupBox):
         from PySide6.QtGui import QColor, QPalette
 
         self.setAutoFillBackground(False)
-        for w in (self._scroll, self._scroll.viewport(), self._grid_host):
+        for w in (self._scroll, self._scroll.viewport(), self._grid_host, self._empty_container):
             pal = QPalette()
             pal.setColor(QPalette.Window, QColor(T.SURFACE))
             w.setAutoFillBackground(True)
@@ -449,13 +488,20 @@ class WorkspacePanel(QGroupBox):
             card.deleteLater()
         self._folder_cards.clear()
 
+        # v1.9.0：切换目录 / 重扫时清空多选状态
+        self._selected_projects.clear()
+        self._anchor = None
+        self._multi = False
+        self.selectionChanged.emit([])
+
         current = self.current_dir()
         self.path_label.setText(current)
         self.back_btn.setVisible(len(self._stack) > 1)
 
         if not os.path.isdir(current):
             self.empty_label.setText("工作目录不可用，请选择现有文件夹。")
-            self.empty_label.setVisible(True)
+            self._empty_container.setVisible(True)
+            self._scroll.setVisible(False)
             return
 
         projects, folders = self._scan_entries(current)
@@ -466,7 +512,8 @@ class WorkspacePanel(QGroupBox):
         self._reflow()
 
         empty = not (projects or folders)
-        self.empty_label.setVisible(empty)
+        self._empty_container.setVisible(empty)
+        self._scroll.setVisible(not empty)
 
     def _refresh_cards(self, projects: list[str], folders: list[str]) -> None:
         """v1.4.0：仅创建新卡片（每个条目对应一张卡片，顺序记录）。"""
@@ -477,6 +524,7 @@ class WorkspacePanel(QGroupBox):
             card.previewRequested.connect(self.previewRequested.emit)
             card.browserRequested.connect(self.browserRequested.emit)
             card.activated.connect(self._on_activate)
+            card.clicked.connect(self._on_card_clicked)
             self._cards[project] = card
             task = _PaletteTask(project, self)
             self._pool.start(task)
@@ -581,13 +629,59 @@ class WorkspacePanel(QGroupBox):
         self.projectSelected.emit(project)
 
     def _set_active(self, project: str) -> None:
-        if self._active == project:
-            return
-        if self._active in self._cards:
-            self._cards[self._active].set_selected(False)
+        """仅记录「当前激活项目」（用于预览 / 输出建议），不改变多选高亮。
+
+        v1.9.0：卡片选中高亮统一由 _apply_selection 按多选集合驱动。
+        """
         self._active = project
-        if project in self._cards:
-            self._cards[project].set_selected(True)
+
+    # ------------------------------------------------------- v1.9.0 多选逻辑
+    def _on_card_clicked(self, project: str, ctrl: bool, shift: bool) -> None:
+        """卡片点击：普通=单选；Ctrl=切换；Shift=从锚点连选（批量导出）。"""
+        order = list(self._cards.keys())  # 项目显示顺序（扫描序，稳定）
+        if shift and self._anchor is not None and self._anchor in self._cards:
+            try:
+                a = order.index(self._anchor)
+                b = order.index(project)
+            except ValueError:
+                a = b = 0
+            lo, hi = (a, b) if a <= b else (b, a)
+            self._apply_selection(set(order[lo:hi + 1]), anchor=self._anchor)
+        elif ctrl:
+            sel = set(self._selected_projects)
+            if project in sel:
+                sel.discard(project)
+            else:
+                sel.add(project)
+            self._apply_selection(sel, anchor=project)
+        else:
+            self._apply_selection({project}, anchor=project)
+        # 激活项目用于预览 / 输出建议（即使被取消选中也保留最后交互项）
+        self._set_active(project)
+        self.projectSelected.emit(project)
+
+    def _apply_selection(self, sel: set[str], anchor: str | None = None) -> None:
+        self._selected_projects = set(sel)
+        if anchor is not None:
+            self._anchor = anchor
+        self._multi = len(self._selected_projects) >= 2
+        for proj, card in self._cards.items():
+            card.set_selected(proj in self._selected_projects, self._multi)
+        self.selectionChanged.emit(sorted(self._selected_projects))
+
+    def selected_projects(self) -> list[str]:
+        """当前多选集合（项目 dir 列表，排序）。"""
+        return sorted(self._selected_projects)
+
+    def export_entries(self) -> list[str]:
+        """返回所有选中项目待导出的 HTML 完整路径（含「导出全部 HTML」展开）。"""
+        out: list[str] = []
+        for proj in sorted(self._selected_projects):
+            card = self._cards.get(proj)
+            if card is None:
+                continue
+            out.extend(card.export_htmls())
+        return out
 
     def _apply_palette(self, project: str, colors: object) -> None:
         """后台色卡提取完成后更新对应卡片（GUI 线程槽）。"""

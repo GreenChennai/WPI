@@ -63,9 +63,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
     params = ExportParams(
         source=args.source,
         format=fmt,
-        size_mode=getattr(args, "size_mode", None) or "fixed-width",
         width=args.width,
-        height=args.height,
         fps=args.fps,
         loop=args.loop,
         transparent=args.transparent,
@@ -136,7 +134,6 @@ def _cmd_selfcheck(args: argparse.Namespace) -> int:
         source=index,
         format="PNG",
         width=720,
-        height=720,
         output_path=out,
     )
     try:
@@ -162,14 +159,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", help="输出文件路径")
     parser.add_argument("--format", choices=["PNG", "GIF", "PDF"], help="导出格式")
     parser.add_argument("--width", type=int, default=1080)
-    parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--fps", type=int, default=15)
     parser.add_argument("--loop", type=int, default=0)
     parser.add_argument("--max-wait", type=float, dest="max_wait")
     parser.add_argument("--transparent", action="store_true")
     parser.add_argument("--no-ffmpeg", action="store_true", help="禁用 FFmpeg GIF 编码")
-    parser.add_argument("--size-mode", choices=["fixed-width", "fixed-height", "fixed-both"],
-                        help="尺寸约束模式（固定宽度/固定高度/固定宽高）")
     parser.add_argument("--no-full-page", action="store_true",
                         help="关闭整页导出（仅按视口首屏导出）")
     return parser

@@ -19,7 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(ROOT, "src")
 DEMO_DIR = os.path.join(ROOT, "examples", "demo")
 DEFAULT_OUT_BASE = r"E:\平日资料\构建"
-SEMVER = "1.8.0"
+SEMVER = "1.9.0"
 
 # v1.5.0：PySide6 仅实际使用 QtWidgets/QtGui/QtCore/QtNetwork + QtWebEngine 链路。
 # 其余 Qt 模块（多媒体/3D/图表/位置/PDF/虚拟键盘等）排除逻辑已内置于
@@ -85,9 +85,9 @@ def write_metadata(build_root: str, version: str) -> None:
 def smoke_test(build_root: str, exe: str) -> None:
     print("== offline smoke ==")
     cases = (
-        ("smoke.png", ["--format", "PNG", "--width", "1080", "--height", "1080"]),
-        ("smoke.gif", ["--format", "GIF", "--width", "1080", "--height", "1080", "--fps", "10"]),
-        ("smoke.pdf", ["--format", "PDF", "--width", "1080", "--height", "1080"]),
+        ("smoke.png", ["--format", "PNG", "--width", "1080"]),
+        ("smoke.gif", ["--format", "GIF", "--width", "1080", "--fps", "10"]),
+        ("smoke.pdf", ["--format", "PDF", "--width", "1080"]),
     )
     for name, extra in cases:
         out = os.path.join(build_root, name)

@@ -15,16 +15,14 @@ from dataclasses import dataclass, field
 class ExportParams:
     source: str                     # HTML 文件路径 或 目录
     format: str = "PNG"             # PNG / GIF / PDF
-    size_mode: str = "fixed-width"  # 尺寸约束模式（用于整页导出定向）
     width: int = 1080
-    height: int = 1080
     fps: int = 15
     loop: int = 0
     transparent: bool = False
     output_path: str = ""
     max_wait: float = 15.0
     use_ffmpeg: bool = True
-    full_page: bool = True          # PNG/PDF：按页面实际内容长度导出
+    full_page: bool = True          # PNG/PDF：整页导出（高度随网页实际内容长度）
     extra_warnings: list[str] = field(default_factory=list)
 
 
@@ -190,6 +188,34 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             server.stop()
 
 
+def run_batch_sync(
+    params_list: list[ExportParams],
+    progress=None,
+    status=None,
+) -> dict:
+    """批量导出：依次导出 params_list 中的每一项（v1.9.0 多选批量导出）。
+
+    任一文件失败即停止并向上抛出（遇错停止、成功继续，由调用方回报）。
+    返回 {"batch": True, "results": [...], "count": N}。
+    """
+    total = len(params_list)
+    results: list[dict] = []
+    for i, params in enumerate(params_list):
+        stem = os.path.basename(params.source)
+        if status is not None:
+            status(f"导出 {i + 1}/{total}: {stem}")
+        res = run_export_sync(
+            params,
+            progress=(
+                lambda n: progress(int((i + n / 100.0) / total * 100))
+                if progress is not None else None
+            ),
+            status=status,
+        )
+        results.append(res)
+    return {"batch": True, "results": results, "count": total}
+
+
 try:  # GUI 场景才依赖 PySide6；CLI/冒烟测试可脱离 GUI 运行
     from PySide6.QtCore import QObject, Signal  # type: ignore
 
@@ -202,11 +228,38 @@ try:  # GUI 场景才依赖 PySide6；CLI/冒烟测试可脱离 GUI 运行
         def __init__(self, parent=None):
             super().__init__(parent)
             self._params: ExportParams | None = None
+            self._params_list: list[ExportParams] | None = None
+            self._batch: bool = False
 
         def set_params(self, params: ExportParams) -> None:
             self._params = params
+            self._batch = False
+
+        def set_params_list(self, params_list: list[ExportParams]) -> None:
+            self._params_list = params_list
+            self._batch = True
 
         def run(self) -> None:
+            if self._batch:
+                if not self._params_list:
+                    self.failed.emit("批量导出参数为空")
+                    return
+                try:
+                    res = run_batch_sync(
+                        self._params_list,
+                        progress=lambda n: self.progress.emit(n),
+                        status=lambda m: self.status.emit(m),
+                    )
+                    self.result.emit(res)
+                except Exception as exc:  # noqa: BLE001
+                    try:
+                        import traceback
+
+                        traceback.print_exc()
+                    except Exception:
+                        pass
+                    self.failed.emit(str(exc))
+                return
             params = self._params
             if params is None:
                 self.failed.emit("导出参数为空")

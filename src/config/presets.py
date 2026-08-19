@@ -8,46 +8,18 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
 
 # ---------------------------------------------------------------------------
-# 尺寸预设（设计文档 4.3）
+# 尺寸预设（v1.9.0 起仅保留宽度；高度由网页实际内容长度决定，
+# 移除旧的长/宽尺寸约束模式与比例预设等无用代码）
 # ---------------------------------------------------------------------------
-# 比例预设（宽, 高 的整数比）
-RATIO_PRESETS: dict[str, tuple[int, int]] = {
-    "3:4": (3, 4),
-    "1:1": (1, 1),
-    "4:3": (4, 3),
-}
-RATIO_PRESETS_PX: dict[str, tuple[int, int]] = {
-    "3:4": (1080, 1440),
-    "1:1": (1080, 1080),
-    "4:3": (1080, 810),
-}
-FIXED_WIDTH_PRESETS: list[int] = [2000, 2400, 1080]
-FIXED_HEIGHT_PRESETS: list[int] = [2000, 2400, 1080]
-DEFAULT_RATIO = "1:1"
-
 # v1.2.0：宽度预设（高度跟随网页实际内容长度）
 WIDTH_PRESETS: list[int] = [2400, 1440, 1080, 800]
 DEFAULT_WIDTH = 1080
-
-# 三种尺寸约束模式
-SIZE_MODE_FIXED_WIDTH = "fixed-width"
-SIZE_MODE_FIXED_HEIGHT = "fixed-height"
-SIZE_MODE_FIXED_BOTH = "fixed-both"
-SIZE_MODES = (SIZE_MODE_FIXED_WIDTH, SIZE_MODE_FIXED_HEIGHT, SIZE_MODE_FIXED_BOTH)
-
-SIZE_MODE_LABELS: dict[str, str] = {
-    SIZE_MODE_FIXED_WIDTH: "固定宽度",
-    SIZE_MODE_FIXED_HEIGHT: "固定高度",
-    SIZE_MODE_FIXED_BOTH: "固定宽高",
-}
-
-DEFAULT_SIZE = (1080, 1080)
 
 # ---------------------------------------------------------------------------
 # 导出默认值（设计文档 4.5 / 8）
@@ -63,7 +35,6 @@ GIF_MAX_FRAMES = 240    # GIF 截取上限帧数（风险对策）
 
 PNG_TRANSPARENT = False
 PDF_PAPER = "Fit"       # 或 "A4"
-FULL_PAGE_DEFAULT = True   # 固定宽/高模式导出整页内容（按页面实际尺寸）
 
 # 预览
 PREVIEW_WINDOW_SIZE = (1080, 760)
@@ -137,35 +108,5 @@ def default_workspace_dir() -> str:
     return d
 
 
-def ratio_tuple(name: str) -> tuple[int, int]:
-    """按 '宽:高' 字符串返回 (w, h) 比例，找不到时回退 1:1。"""
-    if name in RATIO_PRESETS:
-        return RATIO_PRESETS[name]
-    try:
-        w, h = name.split(":")
-        return (int(w), int(h))
-    except (ValueError, AttributeError):
-        return (1, 1)
-
-
-def compute_size(
-    mode: str,
-    width: int,
-    height: int,
-    ratio_name: str = DEFAULT_RATIO,
-) -> tuple[int, int]:
-    """按尺寸模式计算最终导出尺寸（像素）。
-
-    - fixed-width:  宽固定，高 = round(宽 * ratio_h / ratio_w)
-    - fixed-height: 高固定，宽 = round(高 * ratio_w / ratio_h)
-    - fixed-both:   宽高均固定
-    """
-    width = max(1, int(width))
-    height = max(1, int(height))
-    if mode == SIZE_MODE_FIXED_WIDTH:
-        rw, rh = ratio_tuple(ratio_name)
-        return (width, max(1, round(width * rh / rw)))
-    if mode == SIZE_MODE_FIXED_HEIGHT:
-        rw, rh = ratio_tuple(ratio_name)
-        return (max(1, round(height * rw / rh)), height)
-    return (width, height)
+# （v1.9.0：已移除 ratio_tuple / compute_size 等尺寸模式辅助函数，
+#  本软件导出仅受宽度约束，高度由网页实际内容长度决定。）

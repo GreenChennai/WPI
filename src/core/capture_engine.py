@@ -215,18 +215,52 @@ class CaptureEngine:
             )
         )
 
+    def trigger_scroll_reveals(self, step_ms: int = 130) -> None:
+        """滚动遍历整页以触发滚动入场动画（IntersectionObserver / 滚动监听的
+        reveal-on-scroll），结束后回到顶部。
+
+        整页截图（captureBeyondViewport）一次性捕获整页，但「滚动触发型入场
+        动画」只在元素进入视口时才播放；若页面从未被滚动过，这些元素停留在
+        初始态（透明 / 下移），截到的是未展开内容。此处主动滚动一遍把它们
+        「激活」到终态（v1.9.0，需求 7）。任何异常都不抛出，退化为直接截图。
+        """
+        try:
+            self.page.evaluate(
+                """async () => {
+                    try {
+                        const vh = window.innerHeight || 600;
+                        const step = Math.max(150, Math.floor(vh * 0.85));
+                        const total = Math.max(
+                            document.documentElement.scrollHeight,
+                            document.body ? document.body.scrollHeight : 0) || 0;
+                        for (let y = 0; y <= total; y += step) {
+                            window.scrollTo(0, y);
+                            await new Promise(r => setTimeout(r, 130));
+                        }
+                        window.scrollTo(0, 0);
+                        await new Promise(r => setTimeout(r, 130));
+                    } catch (e) {}
+                    return true;
+                }"""
+            )
+        except Exception:
+            pass
+
     def settle(self, infinite_wait: float = ANIMATION_INFINITE_WAIT) -> dict:
-        """导出前让页面完整呈现：字体/图片加载 + 有限动画收敛到终态 +
-        无限动画等待固定时长后截取（v1.8.0，需求 4 的核心修复）。
+        """导出前让页面完整呈现：字体/图片加载 + 滚动触发动画展开 + 有限动画
+        收敛到终态 + 无限动画等待固定时长后截取（v1.8.0 需求 4 + v1.9.0 需求 7）。
 
         返回 {"infinite": <仍在播放的无限动画数>} 供调用方诊断。
         """
         self.wait_assets()
+        # v1.9.0：先滚动一遍触发 reveal-on-scroll 入场动画
+        self.trigger_scroll_reveals()
         inf = self.freeze_animations()
         if inf > 0:
             # 无限循环动画无法 finish：按需求等待其「完全展开」再截取
             self.page.wait_for_timeout(int(infinite_wait * 1000))
-            # 等待期间可能新触发有限入场动画，再次收敛
+            # 等待期间可能新触发有限入场动画，再次滚动 + 冻结
+            self.trigger_scroll_reveals()
             self.freeze_animations()
         else:
             # 已无动画在跑，给渲染线程一点时间消化终态布局

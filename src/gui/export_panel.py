@@ -23,7 +23,6 @@ from config.presets import (
     DEFAULT_FORMAT,
     FILE_EXTENSIONS,
     FORMATS,
-    FULL_PAGE_DEFAULT,
     GIF_FPS,
     GIF_FPS_RANGE,
     GIF_LOOP,
@@ -81,15 +80,6 @@ class ExportPanel(QWidget):
         self.maxwait_spin.valueChanged.connect(self._changed)
         gform.addRow("动画时长上限", self.maxwait_spin)
 
-        # ---- 整页导出（PNG / PDF / GIF 生效）----
-        self.full_page_check = QCheckBox("整页导出（高度按网页实际内容长度）")
-        self.full_page_check.setChecked(FULL_PAGE_DEFAULT)
-        self.full_page_check.setToolTip(
-            "导出宽度为面板设定的视口宽度，高度跟随网页实际内容长度；"
-            "关闭后 PNG/PDF 按视口首屏导出，GIF 按视口高度录制。"
-        )
-        self.full_page_check.toggled.connect(self._changed)
-
         # ---- PNG 参数组
         self.png_group = QGroupBox("PNG 参数", self)
         pform = QFormLayout(self.png_group)
@@ -111,13 +101,18 @@ class ExportPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(group)
-        layout.addWidget(self.full_page_check)
         layout.addWidget(self.gif_group)
         layout.addWidget(self.png_group)
         layout.addWidget(self.pdf_group)
         self._format_changed()
 
     # ------------------------------------------------------------------ API
+    def get_format(self) -> str:
+        return self.format_combo.currentText()
+
+    def get_output_path(self) -> str:
+        return self.output_edit.text().strip()
+
     def get_params(self) -> dict:
         fmt = self.format_combo.currentText()
         return {
@@ -128,7 +123,6 @@ class ExportPanel(QWidget):
             "max_wait": float(self.maxwait_spin.value()),
             "transparent": self.transparent_check.isChecked(),
             "paper": self.paper_combo.currentData(),
-            "full_page": self.full_page_check.isChecked(),
         }
 
     def set_output_suggestion(self, base_dir: str, name: str) -> None:
@@ -156,7 +150,6 @@ class ExportPanel(QWidget):
         self.gif_group.setVisible(fmt == "GIF")
         self.png_group.setVisible(fmt == "PNG")
         self.pdf_group.setVisible(fmt == "PDF")
-        self.full_page_check.setEnabled(True)
         if self.output_edit.text().strip():
             path = self.output_edit.text().strip()
             root, _ext = os.path.splitext(path)

@@ -70,12 +70,8 @@ def test_png_transparency_flatten():
 
 
 def test_export_params_full_page_default():
-    from config.presets import FULL_PAGE_DEFAULT, SIZE_MODES
-
-    assert FULL_PAGE_DEFAULT is True
     p = ExportParams(source="x.html")
     assert p.full_page is True
-    assert p.size_mode in SIZE_MODES
 
 
 def test_export_params_full_page_off():
