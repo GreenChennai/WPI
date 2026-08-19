@@ -53,16 +53,16 @@ def clean_dirs() -> None:
 
 def _find_ffmpeg_src() -> str | None:
     """在常见构建目录中找一个可用的 ffmpeg.exe（供 GIF/MP4 编码打包）。"""
-    candidates = [
-        os.path.join(os.path.dirname(ROOT), "构建", "MomentShift-v0.9.0", "ffmpeg.exe"),
-        os.path.join(ROOT, "tools", "ffmpeg.exe"),
-    ]
+    candidates = [os.path.join(ROOT, "tools", "ffmpeg.exe")]
+    # ROOT = E:\平日资料\GitHub\WPI → 上级的上级 = E:\平日资料 → 构建目录
+    parent = os.path.dirname(os.path.dirname(ROOT))
+    build_base = os.path.join(parent, "构建")
+    candidates.append(os.path.join(build_base, "MomentShift-v0.9.0", "ffmpeg.exe"))
     # 也扫描 构建 目录下较新的 MomentShift 构建
     try:
-        build_root = os.path.join(os.path.dirname(ROOT), "构建")
-        if os.path.isdir(build_root):
-            for name in sorted(os.listdir(build_root), reverse=True):
-                p = os.path.join(build_root, name, "ffmpeg.exe")
+        if os.path.isdir(build_base):
+            for name in sorted(os.listdir(build_base), reverse=True):
+                p = os.path.join(build_base, name, "ffmpeg.exe")
                 if os.path.isfile(p):
                     candidates.append(p)
     except Exception:

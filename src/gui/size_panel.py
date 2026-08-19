@@ -58,6 +58,10 @@ class SizePanel(QWidget):
         row.addWidget(self.unit)
         form.addRow("宽度", row)
 
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(group)
+
         # ---- v2.0.0：导出在线网站（URL 源）----
         online_group = QGroupBox("在线网站", self)
         og = QVBoxLayout(online_group)
@@ -78,10 +82,6 @@ class SizePanel(QWidget):
         row.addWidget(btn_browser)
         og.addLayout(row)
         layout.addWidget(online_group)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(group)
 
     # ------------------------------------------------------------------ API
     def get_width(self) -> int:
