@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
@@ -72,6 +72,8 @@ PREVIEW_WINDOW_SIZE = (1080, 760)
 ANIMATION_MAX_WAIT = 15.0      # 秒，动画"播放完毕"判定上限
 ANIMATION_STABLE_FRAMES = 3    # 连续 N 帧画面不变视为动画结束
 ANIMATION_SAMPLE_INTERVAL = 0.2  # 秒，动画结束轮询间隔
+ANIMATION_INFINITE_WAIT = 3.0  # 秒，无限循环动画"等待完全展开"的固定时长（v1.8.0）
+ASSET_WAIT = 8.0               # 秒，字体 / 图片等资源加载等待上限（v1.8.0）
 
 INDEX_FILENAMES = ("index.html", "index.htm")
 

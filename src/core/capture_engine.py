@@ -14,9 +14,11 @@ from typing import TYPE_CHECKING
 from PIL import Image
 
 from config.presets import (
+    ANIMATION_INFINITE_WAIT,
     ANIMATION_MAX_WAIT,
     ANIMATION_SAMPLE_INTERVAL,
     ANIMATION_STABLE_FRAMES,
+    ASSET_WAIT,
     GIF_MAX_FRAMES,
 )
 
@@ -140,6 +142,97 @@ class CaptureEngine:
         """返回 (动画是否已停, 画面是否已稳定)。"""
         anims = self.running_animation_count()
         return anims == 0
+
+    # --------------------------------------------------- 资源 / 动画收敛（v1.8.0）
+    def wait_assets(self, timeout: float = ASSET_WAIT) -> None:
+        """等待字体与主资源（图片）加载完成，避免截到未渲染 / 未加载的内容。
+
+        强制将懒加载图片转为 eager 并等待其加载完成；带超时保护，
+        任何异常都不抛出（最坏情况退化为直接截图，由调用方兜底）。
+        """
+        try:
+            self.page.evaluate(
+                """async () => {
+                    try {
+                        if (document.fonts && document.fonts.ready) {
+                            await Promise.race([
+                                document.fonts.ready,
+                                new Promise(r => setTimeout(r, 3000)),
+                            ]);
+                        }
+                    } catch (e) {}
+                    const lazy = document.querySelectorAll('img[loading="lazy"]');
+                    for (const i of lazy) { try { i.loading = 'eager'; } catch (e) {} }
+                    const imgs = Array.from(document.images);
+                    const pending = imgs.filter(
+                        i => !i.complete || i.naturalWidth === 0);
+                    if (pending.length) {
+                        await Promise.race([
+                            Promise.all(pending.map(i => new Promise(res => {
+                                if (i.complete && i.naturalWidth) return res();
+                                const done = () => res();
+                                i.addEventListener('load', done, {once: true});
+                                i.addEventListener('error', done, {once: true});
+                            }))),
+                            new Promise(r => setTimeout(r, 5000)),
+                        ]);
+                    }
+                    return true;
+                }"""
+            )
+        except Exception:
+            pass
+        # 给渲染线程一点时间把字体 / 图片真正绘制上屏
+        self.page.wait_for_timeout(200)
+
+    def freeze_animations(self) -> int:
+        """完成所有有限时长动画（跳到终态并渲染），返回仍在播放的无限循环动画数。
+
+        用于 PNG / PDF 导出：将页面动效锁定为「播放完毕」状态（如 opacity 从
+        0 渐显、transform 位移入场），避免截到半透明 / 未展开的纯色块（v1.8.0）。
+        无限循环动画无法 finish，交由调用方等待后截取。
+        """
+        return int(
+            self.page.evaluate(
+                """() => {
+                    if (typeof document.getAnimations !== 'function') return 0;
+                    let inf = 0;
+                    for (const a of document.getAnimations()) {
+                        if (a.playState !== 'running') continue;
+                        let isInf = false;
+                        try {
+                            const eff = a.effect;
+                            const t = eff && typeof eff.getTiming === 'function'
+                                ? eff.getTiming() : null;
+                            isInf = !!(t && (t.iterations === Infinity
+                                             || t.duration === Infinity));
+                        } catch (e) { /* 个别动画计时读取异常，按有限处理 */ }
+                        if (isInf) { inf += 1; continue; }
+                        try { a.finish(); } catch (e) {}
+                    }
+                    return inf;
+                }"""
+            )
+        )
+
+    def settle(self, infinite_wait: float = ANIMATION_INFINITE_WAIT) -> dict:
+        """导出前让页面完整呈现：字体/图片加载 + 有限动画收敛到终态 +
+        无限动画等待固定时长后截取（v1.8.0，需求 4 的核心修复）。
+
+        返回 {"infinite": <仍在播放的无限动画数>} 供调用方诊断。
+        """
+        self.wait_assets()
+        inf = self.freeze_animations()
+        if inf > 0:
+            # 无限循环动画无法 finish：按需求等待其「完全展开」再截取
+            self.page.wait_for_timeout(int(infinite_wait * 1000))
+            # 等待期间可能新触发有限入场动画，再次收敛
+            self.freeze_animations()
+        else:
+            # 已无动画在跑，给渲染线程一点时间消化终态布局
+            self.page.wait_for_timeout(300)
+        return {"infinite": inf}
+
 
     # ---------------------------------------------------------------- capture
     def wait_animation_finished(

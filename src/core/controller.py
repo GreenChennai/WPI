@@ -87,6 +87,14 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         warnings.extend(engine.collect_resource_warnings())
         _progress(40)
 
+        # v1.8.0：导出前确保内容已完整呈现（字体 / 图片加载 + 动画收敛到终态），
+        # 避免截到未渲染的纯色块。GIF 仍需录制动画过程，只等静态资源即可。
+        if params.format == "GIF":
+            engine.wait_assets()
+        else:
+            engine.settle()
+        _progress(45)
+
         result: dict = {
             "format": params.format,
             "path": params.output_path,
@@ -136,7 +144,8 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             _progress(98)
 
         elif params.format == "PNG":
-            # v1.7.0：PNG 直接导出页面当前（正常）状态，不等待动画播放
+            # v1.8.0：导出前已 settle（等待资源加载 + 动画收敛到终态），
+            # 此处直接截取完整呈现后的页面当前状态。
             if params.full_page:
                 _status("测量并导出整页内容…")
                 actual_w, _actual_h = engine.prepare_full_page(params.width, None)
@@ -154,7 +163,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             _progress(98)
 
         else:  # PDF
-            # v1.7.0：PDF 直接打印页面当前（正常）状态，不等待动画播放
+            # v1.8.0：导出前已 settle，此处直接打印完整呈现后的页面当前状态。
             out_w, out_h = params.width, params.height
             if params.full_page:
                 _status("测量并打印整页内容…")

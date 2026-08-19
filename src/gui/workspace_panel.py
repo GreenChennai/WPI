@@ -353,6 +353,8 @@ class WorkspacePanel(QGroupBox):
         self._folder_cards: dict[str, FolderCard] = {}
         self._active: str | None = None
         self._entries: list = []         # v1.4.0：保序存放当前渲染条目
+        self._last_cols: int = -1        # v1.8.0：重排守卫（列数未变则跳过）
+        self._last_entries: object | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(T.SPACE_LG, T.SPACE_SM, T.SPACE_LG, T.SPACE_LG)
@@ -391,7 +393,8 @@ class WorkspacePanel(QGroupBox):
         self._grid = QGridLayout(self._grid_host)
         self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setSpacing(12)
-        self._grid.setAlignment(Qt.AlignTop)
+        # v1.8.0：水平居中，消除「最后一列右侧贴着滚动条」的留白观感
+        self._grid.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
         self._scroll.setWidget(self._grid_host)
         # 工作目录背景统一为 SURFACE(#F6F8FA)
         from PySide6.QtGui import QColor, QPalette
@@ -491,7 +494,18 @@ class WorkspacePanel(QGroupBox):
 
         卡片固定 168×168；UI 宽度每次变化（工作目录面板变宽/窄、窗口缩放）
         时重新计算列数并重排，保证尽可能多显示卡片且缩进居中。
+        v1.8.0：列数与条目均未变化（如纯拖动缩放未跨列）时跳过重排，
+        减少重复布局与卡片抖动。
         """
+        avail = max(200, self._scroll.viewport().width()
+                    - T.SPACE_LG * 2 - self._grid.spacing())
+        card_w = _CARD_SIZE + self._grid.spacing()
+        cols = max(1, (avail + self._grid.spacing()) // card_w)
+        if cols == self._last_cols and self._entries is self._last_entries:
+            return
+        self._last_cols = cols
+        self._last_entries = self._entries
+
         while self._grid.count():
             item = self._grid.takeAt(0)
             w = item.widget()
