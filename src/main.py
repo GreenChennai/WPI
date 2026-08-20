@@ -197,11 +197,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    _suppress_child_consoles()   # v1.4.0：子进程不弹 CMD 窗口
-    if True:  # 确保 src/ 在 sys.path（开发模式），打包模式由 PyInstaller 处理
-        here = os.path.dirname(os.path.abspath(__file__))
-        if here not in sys.path:
-            sys.path.insert(0, here)
+    _suppress_child_consoles()
+    # 确保 src/ 在 sys.path（开发模式），打包模式由 PyInstaller 处理
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
 
     parser = build_parser()
     args = parser.parse_args()
@@ -224,10 +224,10 @@ def main() -> int:
     from config.presets import APP_NAME, APP_TITLE
     from gui.style import build_stylesheet
 
-    # QtWebEngine 沙箱兼容（单文件解包到临时目录时避免提权失败）
-    if True:
-        os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox")
-        os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+    # QtWebEngine 沙箱兼容：单文件模式把内核解包到临时目录，--no-sandbox
+    # 可避免沙箱权限不足导致渲染进程启动失败
+    os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox")
+    os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
 
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough

@@ -129,7 +129,3 @@ def default_workspace_dir() -> str:
     d = os.path.join(app_base_dir(), WORKERFILE_NAME)
     os.makedirs(d, exist_ok=True)
     return d
-
-
-# （v1.9.0：已移除 ratio_tuple / compute_size 等尺寸模式辅助函数，
-#  本软件导出仅受宽度约束，高度由网页实际内容长度决定。）

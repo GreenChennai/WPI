@@ -252,17 +252,3 @@ QToolTip {{
 
 QStatusBar {{ background: {T.WHITE}; border-top: 1px solid {T.BORDER}; }}
 """
-# ---------------------------------------------------------------- 便捷函数
-
-
-def apply_object_names(widget) -> None:
-    """给常见控件打上样式所需的对象名（主按钮等）。"""
-    # 现由各控件直接 setObjectName
-
-
-def primary_style() -> str:
-    """供 QPushButton 动态取用的主按钮样式（以 objectName 为准，备用）。"""
-    return f"""
-    background: {T.ACCENT}; color: #FFFFFF; border: none;
-    border-radius: {T.RADIUS_MD}px; padding: 7px 20px; font-weight: 600;
-    """
