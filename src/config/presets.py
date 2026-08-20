@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
