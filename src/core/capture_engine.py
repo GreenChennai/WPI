@@ -101,6 +101,36 @@ class CaptureEngine:
     def _screenshot_bytes(self, transparent: bool = False, full_page: bool = False) -> bytes:
         return self.page.screenshot(omit_background=transparent, full_page=full_page)
 
+    def _cdp_session(self):
+        """v2.6.0：获取（并缓存）CDP 会话，跳过 Playwright 字体等待等开销。"""
+        if getattr(self, "_cdp", None) is not None:
+            return self._cdp
+        try:
+            self._cdp = self.page.context.new_cdp_session(self.page)
+            self._cdp.send("Page.enable")
+        except Exception:
+            self._cdp = None
+        return self._cdp
+
+    def _screenshot_cdp(self, full_page: bool = False) -> bytes | None:
+        """v2.6.0：CDP Page.captureScreenshot 直连（约快 25%），失败回退。"""
+        import base64
+        session = self._cdp_session()
+        if session is None:
+            return None
+        params = {"format": "png", "captureBeyondViewport": True}
+        if full_page:
+            try:
+                sw, sh = self.content_size()
+                params["clip"] = {"x": 0, "y": 0, "width": sw, "height": sh, "scale": 1}
+            except Exception:
+                pass
+        try:
+            res = session.send("Page.captureScreenshot", params)
+            return base64.b64decode(res["data"])
+        except Exception:
+            return None
+
     def capture_final_frame(
         self, transparent: bool = False, full_page: bool = False
     ) -> Image.Image:
@@ -146,6 +176,13 @@ class CaptureEngine:
            单拍（fixed/sticky 元素只画一次、无拼接、无接缝）；
         2) 确需分块时，非首块临时 `visibility:hidden` 掉 position:fixed 元素，
            拼接后恢复，顶部状态栏不再在每块拼接处重复出现。
+
+        v2.6.0 优化：
+        1) **智能 fixed 隐藏**——只隐藏「顶部小条」类（top ≤ 120px 且 height ≤ 200px），
+           保留其他 fixed 元素（底部装饰/侧边标签/覆盖层），避免 v2.4 一刀切隐藏
+           导致非首块出现「组件缺失」；
+        2) 块等待延长到 400ms 并等 2 个 rAF 帧，保证 canvas/JS 重内容在该区域完成绘制
+           （v2.4 的 150ms 对含 canvas 卡片的页面不够，导致 X8 卡内空白）。
         """
         vw = self.page.viewport_size
         W = max(1, int(vw["width"]))
@@ -166,8 +203,15 @@ class CaptureEngine:
                 self.page.evaluate("(y) => window.scrollTo(0, y)", y)
             except Exception:
                 pass
-            # 高倍率下等待栅格化完成，避免截图模糊
-            self.page.wait_for_timeout(150)
+            # v2.6.0：延长等待 + 等 2 个 rAF 帧，保证 canvas/JS 重内容在该区域完成绘制
+            self.page.wait_for_timeout(400)
+            try:
+                self.page.evaluate(
+                    "() => new Promise(r =>"
+                    " requestAnimationFrame(() => requestAnimationFrame(r)))"
+                )
+            except Exception:
+                pass
             try:
                 actual = int(self.page.evaluate("() => window.scrollY || 0"))
             except Exception:
@@ -178,10 +222,10 @@ class CaptureEngine:
                 y += H
                 continue
             if first:
-                self._toggle_fixed_elements(False)   # 首块显示固定元素（页面顶部）
+                self._toggle_fixed_topbar(False)   # 首块显示固定元素
                 first = False
             else:
-                self._toggle_fixed_elements(True)    # 非首块隐藏，避免拼接重复
+                self._toggle_fixed_topbar(True)    # 非首块隐藏顶部小条，去重
             shot = self.page.screenshot(
                 clip={"x": 0, "y": rel, "width": W, "height": take},
                 omit_background=transparent,
@@ -192,7 +236,7 @@ class CaptureEngine:
                 )
             )
             y += H
-        self._toggle_fixed_elements(False)     # 恢复 fixed 元素可见性
+        self._toggle_fixed_topbar(False)     # 恢复顶部小条可见性
         try:
             self.page.evaluate("() => window.scrollTo(0, 0)")
         except Exception:
@@ -212,19 +256,22 @@ class CaptureEngine:
             ty += c.size[1]
         return canvas
 
-    def _toggle_fixed_elements(self, hide: bool) -> None:
-        """v2.4.0：临时隐藏/恢复页面内 position:fixed 元素（拼接去重）。
+    def _toggle_fixed_topbar(self, hide: bool) -> None:
+        """v2.6.0：智能隐藏"顶部小条"类 fixed 元素（拼接去重）。
 
-        分块拼接时 fixed 元素（顶部状态栏/悬浮按钮等）会随每块滚动重复出现；
-        非首块截图前隐藏它们、结束后恢复，使 fixed 元素只在首块（页面顶部）
-        出现一次，行为与 captureBeyondViewport 单拍一致。visibility 隐藏保持布局。
+        只隐藏 position:fixed 且 getBoundingClientRect.top ≤ 120px 且 height ≤ 200px
+        的元素（顶部导航/状态栏）。其他 fixed 元素（底部装饰条、侧边标签、覆
+        盖层等）保留，确保分块截图时它们出现在文档中自己的位置（与单拍一致），
+        避免 v2.4.0 一刀切隐藏导致的「组件缺失」。
         """
         try:
             self.page.evaluate(
                 """(hide) => {
                     for (const el of document.querySelectorAll('*')) {
                         try {
-                            if (getComputedStyle(el).position === 'fixed') {
+                            if (getComputedStyle(el).position !== 'fixed') continue;
+                            const r = el.getBoundingClientRect();
+                            if (r.top <= 120 && r.height <= 200) {
                                 el.style.setProperty('visibility',
                                     hide ? 'hidden' : '', 'important');
                             }
@@ -425,6 +472,13 @@ class CaptureEngine:
             finite, _infinite = self.animation_running_counts()
         return False
 
+    def _shot(self, full_page: bool):
+        """v2.6.0：截取一帧，优先 CDP（更约 25% 快），失败回退 Playwright。"""
+        data = self._screenshot_cdp(full_page=full_page)
+        if data is not None:
+            return Image.open(io.BytesIO(data)).convert("RGB")
+        return self.capture_final_frame(full_page=full_page)
+
     def capture_frames(
         self,
         fps: int,
@@ -439,25 +493,30 @@ class CaptureEngine:
 
         首帧立即采样，随后以 1/fps 间隔实时采样（播放速度 = 真实时间）。
         early_stop=True 时：有限动画全部停止且画面连续 stable_frames 次不变即
-        提前结束（适合等待动画播完）；early_stop=False 时：录制满 max_wait
-        秒（帧数 = max_wait×fps，受 max_frames 上限约束）——保证视频/GIF 时长
-        与用户设定的「动画时长上限」一致（v2.4.0）。
-        full_page=True 时逐帧捕获整页（captureBeyondViewport 单拍，不撑爆 vh）。
-        返回 (帧序列, 各帧采集时刻秒)。
+        提前结束；early_stop=False 时：录制满 max_wait 秒（帧数 = max_wait×fps，
+        受 max_frames 上限约束）。
+        v2.6.0 自适应节奏：当单帧截图耗时大于 1/fps 间隔时不再 sleep 等待
+        （cycle = ct，最大化采样率），减少帧重复让动画更流畅。v2.6.0 截屏走
+        CDP Page.captureScreenshot（失败回退），约快 25%。
+        full_page=True 时逐帧捕获整页。
         """
-        interval = 1.0 / max(1, int(fps))
+        fps_i = max(1, int(fps))
+        interval = 1.0 / fps_i
         if max_frames is None:
-            max_frames = int(max_wait * max(1, int(fps))) + 2
-        frames: list[Image.Image] = [
-            self.capture_final_frame(full_page=full_page)
-        ]
+            max_frames = int(max_wait * fps_i) + 2
+        frames: list[Image.Image] = [self._shot(full_page)]
         times: list[float] = [time.monotonic()]
         prev = self._fast_hash(frames[0])
         stable = 0
         deadline = time.monotonic() + max_wait
+        next_t = time.monotonic()  # v2.6.0：自适应节奏
         while time.monotonic() < deadline:
-            time.sleep(interval)
-            frame = self.capture_final_frame(full_page=full_page)
+            next_t += interval
+            wait = next_t - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            # 若已超时（sleep 期间或截图慢导致超时）则不再等，直接采下一帧
+            frame = self._shot(full_page)
             frames.append(frame)
             times.append(time.monotonic())
             if on_frame is not None:

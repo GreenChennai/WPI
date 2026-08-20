@@ -62,10 +62,8 @@ class ExportPanel(QWidget):
         gform = QFormLayout(self.gif_group)
 
         self.fps_combo = QComboBox()
-        for f in GIF_FPS_PRESETS:
+        for f in GIF_FPS_PRESETS:                    # v2.6.0：严格限制 4 个整数延迟帧速
             self.fps_combo.addItem(f"{f} fps", f)
-        if GIF_FPS not in GIF_FPS_PRESETS:  # 默认帧率不在预设里时补上
-            self.fps_combo.addItem(f"{GIF_FPS} fps", GIF_FPS)
         self.fps_combo.setCurrentText(f"{GIF_FPS} fps")
         self.fps_combo.currentIndexChanged.connect(self._changed)
         gform.addRow("帧率", self.fps_combo)

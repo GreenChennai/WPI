@@ -184,7 +184,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="分辨率倍率（原生渲染放大，X1/X2/X4/X8）")
     parser.add_argument("--height", type=int, default=0,
                         help="高度锁定（0=不限制；>0 内容高度锁定为该值，超出不导出）")
-    parser.add_argument("--fps", type=int, default=15)
+    parser.add_argument("--fps", type=int, choices=[10, 20, 25, 50], default=25,
+                        help="帧速（10/20/25/50 fps，对应 GIF 延迟 10/5/4/2 百分秒）")
     parser.add_argument("--loop", type=int, default=0)
     parser.add_argument("--max-wait", type=float, dest="max_wait")
     parser.add_argument("--transparent", action="store_true")

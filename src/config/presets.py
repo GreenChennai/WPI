@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "2.5.0"
+VERSION = "2.6.0"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
@@ -37,9 +37,10 @@ DEFAULT_FORMAT = "PNG"
 FILE_EXTENSIONS = {"PNG": ".png", "GIF": ".gif", "MP4": ".mp4", "PDF": ".pdf"}
 
 # v2.0.0：GIF / MP4 共用的帧率预设与上限
-GIF_FPS = 15
-GIF_FPS_PRESETS = (15, 24, 30, 48, 60)
-GIF_FPS_RANGE = (1, 60)   # v2.0.0：帧率上限由 30 提到 60
+# v2.6.0：限制为 GIF 延迟时间（100/FPS 百分秒）为整数的 4 个值，避免非整数延迟 BUG
+GIF_FPS = 25
+GIF_FPS_PRESETS = (10, 20, 25, 50)
+GIF_FPS_RANGE = (10, 50)
 GIF_LOOP = 0            # 0 = 无限循环（默认开关开启）
 GIF_MAX_FRAMES = 900    # v2.4.0：GIF 截取上限帧数（15s×60fps 满时长录制）
 
