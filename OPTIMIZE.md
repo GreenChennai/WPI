@@ -1,36 +1,37 @@
-# WPI v2.9.0 优化清单
+# WPI v3.0.0 优化清单
 
-> 目标：修复 CI 构建失败 + 批量导出卡死防护 + 在线网站登录态保留
-> 文件：src/、tools/、.github/workflows/、README.md
-> 关联：GitHub Actions 发行流程
+> 目标：① 修复重交互静态网页导出 PNG 卡死（40% 无法前进）；② 超时不强制退出，改为提醒 + 「取消任务」一键中止
+> 文件：src/、.github/workflows/、OPTIMIZE.md
+> 关联：静态导出可靠性 + 导出流程可取消
 
 ---
 
 ## 优化项列表
 
-### 1. 修复 GitHub Actions 构建失败（离线冒烟 UnicodeEncodeError）
-- **现状**：CI 上 PyInstaller 打包成功，但冒烟 `smoke.png` rc=1，exe 输出 `导出失败: UnicodeEncodeError: 'charmap' codec can't encode characters in position 9-16`。
-- **根因**：windowed 冻结态 `_attach_parent_console()` 中 `AttachConsole(-1)` 失败时只返回 0 不抛异常，随后 `open("CONOUT$")` 静默失败，stdout 保持为 PyInstaller 按 locale 编码（英文 runner 为 cp1252）打开的重定向管道——打印中文状态即崩溃；本地中文系统（cp936）编码中文字符因此无法复现。
-- **修复**：`_attach_parent_console()` 检查 AttachConsole 返回值；无论成败都把 stdout/stderr 收敛为可写中文的 UTF-8 流（None 兜底 CONOUT$/devnull、附着时指到控制台、重定向时 reconfigure 为 UTF-8）。workflow env 追加 `PYTHONIOENCODING=utf-8`。
+### 1. 修复重交互页面 PNG 导出卡死（40% 卡在 settle）
+- **现状**：从 `2026-08-16_INK_墨迹实验室`（7 个 canvas rAF 动画循环 + `scroll-behavior: smooth` + 无限 CSS 动画）以 800px 导出 PNG 卡在 40%（`settle()` 内）数分钟无进展。
+- **根因**（已定位并复现）：无头模式下 `requestAnimationFrame` 不锁 60fps，密集 rAF 画布动画以数百 fps（实测 163fps+）占满渲染主线程。`page.evaluate` 中 `await` 的续跑与 Playwright 自带超时都建立在页面主线程能调度任务之上——主线程被占满时两者同时失效，evaluate 永不返回 → 导出卡死固定百分比。`scroll-behavior: smooth` 会让每次 scrollTo 走平滑动画，成为卡死放大器（滚动遍历每步实测 6s+）。
+- **修复**：
+  1. 静态导出（PNG/PDF）加载前注入脚本把 rAF 节流到 ~4fps（`STATIC_RENDER_RAF_THROTTLE_MS=250`）+ `emulate_media(reduced_motion='reduce')` 让页面「最小动效」降级生效（GIF/MP4 需完整动画，不节流）。
+  2. `trigger_scroll_reveals` 强制 `scroll-behavior: auto` 瞬时滚动 + 步数上限（`SCROLL_REVEAL_MAX_STEPS=40`）兜底超长页。
+- **验证**：INK 页 800px 导出 5.1s 完成（800×7577 整页、内容非空白）；demo PNG/PDF/GIF 回归通过。
 - **状态**：✅ 已完成
 
-### 2. 多选导出 PNG 卡死防护
-- **现状**：用户反馈多选导出 PNG 卡在 8% 无法导出。用 demo 在主线程与 QThread 下批量（2/3/6 项、X1/X2）复现均正常完成，无法本地复现原问题。
-- **防护**：`run_batch_sync` 每项在独立守护线程执行并套看门狗（`BATCH_ITEM_TIMEOUT_SECONDS=900`），超时抛明确错误中止，杜绝 GUI 无限等待；Playwright 各步骤本身有 30s 超时兜底。
-- **状态**：✅ 已完成（仍需用户用真实项目验证；若仍出现，请提供最小复现项目）
-
-### 3. 在线网站导出保留登录态 / 降低人机校验
-- **现状**：在线网站导出用 Playwright 临时上下文，无 cookie，访问需登录/有人机校验的站点退到登录页、验证页。
-- **修复**：`BrowserHost` 支持持久化用户目录（`use_profile=True`，仅在线 URL 启用）；数据落在 `%LOCALAPPDATA%\WPI\browser-profile`（可 `WPI_PROFILE_DIR` 覆盖），与系统浏览器完全隔离；隐藏自动化标记（`--disable-blink-features=AutomationControlled`、忽略 `--enable-automation`）降低校验误判；目录被占用时降级为临时上下文保证导出可用。
-- **验证**：两次独立启动写/读 cookie 成功持久化。
+### 2. 超时提醒（不强制退出）+ 「取消任务」按钮
+- **现状**：批量导出看门狗超时（900s）直接抛错中止；GUI 导出进行中无取消入口。
+- **修复**：
+  1. `run_batch_sync` 看门狗超时**不再中止**——任务量大 / 机器弱属正常慢，改为状态栏提醒「可继续等待，或点击「取消任务」中止」，继续等待直到完成或取消。
+  2. 新增 `ExportCancelledError` + `cancel_event` 贯穿 `run_export_sync` / `run_batch_sync` / 长耗时捕获循环（`capture_frames` / `capture_scroll_frames` / `capture_highres`），各阶段检查取消标志即抛。
+  3. GUI 在「导出中…」按钮右侧新增「取消任务」按钮：导出中显示，点击置取消标志并正常中止，完成弹「已取消」提示。
+- **验证**：预置取消标志 → 立即取消；导出中 1.7s 内取消生效；取消与失败（`failed`）区分信号（`cancelled`）。
 - **状态**：✅ 已完成
 
-### 4. 版本号升级到 2.9.0
-- **现状**：`src/config/presets.py`、`pyproject.toml`、`tools/build.py`、workflow 版本段四处仍为 2.8.0。
-- **目标**：统一改为 2.9.0。
-- **状态**：✅ 已完成（本地构建 `WPI-v2.9.0-7a598e5\`，冒烟全通过）
+### 3. 版本号升级到 3.0.0
+- **现状**：`src/config/presets.py`、`pyproject.toml`、`tools/build.py`、workflow 版本段四处仍为 2.9.0。
+- **目标**：统一改为 3.0.0。
+- **状态**：✅ 已完成
 
-### 5. 提交推送 + Actions 验证
+### 4. 提交推送 + Actions 验证
 - **现状**：本地待推送。
 - **目标**：提交推送、验证 Actions 构建通过并生成 Release。
 - **状态**：⬜ 待执行
@@ -39,6 +40,6 @@
 
 ## 依赖关系
 
-- 项 1/2/3 相互独立，可并行排查。
-- 项 4 依赖 1-3 修复完成后再统一改版号。
-- 项 5 依赖 1-4 全部完成。
+- 项 1、2 相互独立（1 修卡死、2 改取消/提醒），可并行。
+- 项 3 依赖 1-2 完成后统一改版号。
+- 项 4 依赖 1-3 全部完成。

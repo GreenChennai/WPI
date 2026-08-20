@@ -39,6 +39,7 @@ class MainWindow(QMainWindow):
         self._thread: QThread | None = None
         self._preview_win = None
         self._active_project: str | None = None
+        self._cancel_event: threading.Event | None = None
 
         self._loading: QWidget | None = None
         self._loaded = False
@@ -162,6 +163,15 @@ class MainWindow(QMainWindow):
         self.export_btn.setMinimumHeight(36)
         self.export_btn.clicked.connect(self._run_export)
         action_row.addWidget(self.export_btn, 1)
+
+        # 「取消任务」：导出进行中显示，一键中止当前任务（导出中按钮右侧）
+        self.cancel_btn = QPushButton("取消任务")
+        self.cancel_btn.setObjectName("ghostBtn")
+        self.cancel_btn.setMinimumHeight(36)
+        self.cancel_btn.setToolTip("一键取消当前正在进行的导出任务")
+        self.cancel_btn.clicked.connect(self._on_cancel_clicked)
+        self.cancel_btn.setVisible(False)
+        action_row.addWidget(self.cancel_btn)
         right_layout.addLayout(action_row)
 
         self.progress = QProgressBar()
@@ -417,18 +427,38 @@ class MainWindow(QMainWindow):
         self.export_btn.setText(label)
         self.export_btn.setEnabled(False)
         self.preview_btn.setEnabled(False)
+        # 每次导出新建取消标志并显示「取消任务」按钮
+        self._cancel_event = threading.Event()
+        self.cancel_btn.setVisible(True)
+        self.cancel_btn.setEnabled(True)
+        self.cancel_btn.setText("取消任务")
 
         self._thread = QThread(self)
         self._export_worker = Controller()
         self._export_worker.set_params_list(params_list)
+        self._export_worker.set_cancel_event(self._cancel_event)
         self._export_worker.moveToThread(self._thread)
         self._thread.started.connect(self._export_worker.run)
         self._export_worker.progress.connect(self.progress.setValue)
         self._export_worker.status.connect(self.status_label.setText)
         self._export_worker.result.connect(self._on_export_done)
         self._export_worker.failed.connect(self._on_export_failed)
+        self._export_worker.cancelled.connect(self._on_export_cancelled)
         self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
+
+    def _on_cancel_clicked(self) -> None:
+        """点击「取消任务」：置取消标志，交给导出循环在各阶段检查后正常中止。"""
+        if self._cancel_event is None:
+            return
+        self._cancel_event.set()
+        self.cancel_btn.setEnabled(False)
+        self.cancel_btn.setText("正在取消…")
+        self.status_label.setText("正在取消当前任务…")
+
+    def _on_export_cancelled(self) -> None:
+        self._finish_busy()
+        QMessageBox.information(self, "已取消", "导出任务已取消。")
 
     def _on_export_done(self, result: dict) -> None:
         self._finish_busy()
@@ -487,6 +517,10 @@ class MainWindow(QMainWindow):
         self.export_btn.setEnabled(True)
         self.preview_btn.setEnabled(True)
         self._thread = None
+        self._cancel_event = None
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.setEnabled(True)
+        self.cancel_btn.setText("取消任务")
         # 依据当前多选状态刷新按钮标签 / 预览可用性
         self._on_selection_changed(self.workspace.selected_projects())
 
@@ -502,6 +536,8 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         if self._thread is not None and self._thread.isRunning():
+            if self._cancel_event is not None:
+                self._cancel_event.set()
             self._thread.quit()
             self._thread.wait(3000)
         super().closeEvent(event)

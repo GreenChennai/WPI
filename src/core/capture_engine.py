@@ -24,12 +24,30 @@ from config.presets import (
     ANIMATION_SAMPLE_INTERVAL,
     ANIMATION_STABLE_FRAMES,
     ASSET_WAIT,
+    SCROLL_REVEAL_MAX_STEPS,
+    STATIC_RENDER_RAF_THROTTLE_MS,
 )
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
 
     from .browser_host import BrowserHost
+
+
+# 静态导出（PNG/PDF）页面加载前的注入脚本：把 requestAnimationFrame 节流到
+# 低帧率。无头模式下 rAF 不锁 60fps，密集 rAF 画布动画（数百 fps）会占满渲染
+# 主线程——`page.evaluate` 中 await 的续跑和 Playwright 自带超时都建立在页面
+# 主线程能调度任务之上，主线程被占满时两者同时失效，导出会卡死在固定百分比
+# 无法前进（如 PNG 的 40%）。静态导出只需要终态画面，节流后装饰性循环动画
+# 几乎不耗 CPU，一次性绘制仍能完成，重交互页面得以正常收敛。
+_STATIC_RENDER_INIT_JS = """(() => {
+    if (window.__wpiRafThrottled) return;
+    window.__wpiRafThrottled = true;
+    const INTERVAL = %d;
+    window.requestAnimationFrame = (cb) =>
+        setTimeout(() => cb(performance.now()), INTERVAL);
+    window.cancelAnimationFrame = (id) => clearTimeout(id);
+})();""" % STATIC_RENDER_RAF_THROTTLE_MS
 
 
 class CaptureEngine:
@@ -48,8 +66,21 @@ class CaptureEngine:
         viewport: tuple[int, int],
         load_timeout_ms: int = 30000,
         device_scale: int = 1,   # 分辨率倍率（原生渲染，非超分）
+        static: bool = False,    # 静态导出（PNG/PDF）：节流 rAF + 模拟减少动效
     ) -> CaptureEngine:
         context, page = browser.new_page(viewport, device_scale_factor=device_scale)
+        if static:
+            # 必须在页面脚本执行前注入：节流 rAF 消除密集动画对主线程的占用，
+            # 模拟 prefers-reduced-motion 让页面自身的"最小动效"降级生效。
+            # 动态格式（GIF/MP4）不注入，需要完整动画。
+            try:
+                page.add_init_script(_STATIC_RENDER_INIT_JS)
+            except Exception:
+                pass
+            try:
+                page.emulate_media(media="screen", reduced_motion="reduce")
+            except Exception:
+                pass
         page.goto(url, wait_until="load", timeout=load_timeout_ms)
         try:
             page.wait_for_load_state("networkidle", timeout=3000)
@@ -59,6 +90,14 @@ class CaptureEngine:
         return cls(browser, page, viewport[0], viewport[1])
 
     # --------------------------------------------------------------- helpers
+    @staticmethod
+    def _raise_if_cancelled(cancel_event) -> None:
+        """长耗时捕获循环里的取消检查（懒导入，避免与 controller 循环依赖）。"""
+        if cancel_event is not None and cancel_event.is_set():
+            from core.controller import ExportCancelledError
+
+            raise ExportCancelledError()
+
     def running_animation_count(self) -> int:
         return self.page.evaluate(
             """() => {
@@ -165,6 +204,7 @@ class CaptureEngine:
         height_css: int | None = None,
         transparent: bool = False,
         scale: int = 1,
+        cancel_event=None,
     ) -> Image.Image:
         """分块截图 + 纵向拼接，用于超长 / 高倍率整页导出。
 
@@ -203,6 +243,7 @@ class CaptureEngine:
         y = 0
         first = True
         while y < total:
+            self._raise_if_cancelled(cancel_event)
             try:
                 self.page.evaluate("(y) => window.scrollTo(0, y)", y)
             except Exception:
@@ -395,26 +436,35 @@ class CaptureEngine:
         动画」只在元素进入视口时才播放；若页面从未被滚动过，这些元素停留在
         初始态（透明 / 下移），截到的是未展开内容。此处主动滚动一遍把它们
         「激活」到终态。任何异常都不抛出，退化为直接截图。
+
+        防卡死加固：页面自身 `scroll-behavior: smooth` 会让每次 scrollTo 走
+        平滑动画，与密集 rAF 画布动画叠加时主线程被占满、evaluate 的 await
+        续跑被饿死（超时也失效）→ 先强制瞬时滚动；超长页面限步数兜底。
         """
+        js = (
+            """async () => {
+                try {
+                    document.documentElement.style.scrollBehavior = 'auto';
+                    const vh = window.innerHeight || 600;
+                    const step = Math.max(150, Math.floor(vh * 0.85));
+                    const total = Math.max(
+                        document.documentElement.scrollHeight,
+                        document.body ? document.body.scrollHeight : 0) || 0;
+                    const MAX_STEPS = %d;
+                    let y = 0;
+                    for (let n = 0; n < MAX_STEPS && y <= total; n++, y += step) {
+                        window.scrollTo(0, y);
+                        await new Promise(r => setTimeout(r, %d));
+                    }
+                    window.scrollTo(0, 0);
+                    await new Promise(r => setTimeout(r, 130));
+                } catch (e) {}
+                return true;
+            }"""
+            % (SCROLL_REVEAL_MAX_STEPS, step_ms)
+        )
         try:
-            self.page.evaluate(
-                """async () => {
-                    try {
-                        const vh = window.innerHeight || 600;
-                        const step = Math.max(150, Math.floor(vh * 0.85));
-                        const total = Math.max(
-                            document.documentElement.scrollHeight,
-                            document.body ? document.body.scrollHeight : 0) || 0;
-                        for (let y = 0; y <= total; y += step) {
-                            window.scrollTo(0, y);
-                            await new Promise(r => setTimeout(r, 130));
-                        }
-                        window.scrollTo(0, 0);
-                        await new Promise(r => setTimeout(r, 130));
-                    } catch (e) {}
-                    return true;
-                }"""
-            )
+            self.page.evaluate(js)
         except Exception:
             pass
 
@@ -494,6 +544,7 @@ class CaptureEngine:
         full_page: bool = False,
         jpeg: bool = True,         # 动画逐帧 JPEG 加速（视觉无损）
         on_frame=None,
+        cancel_event=None,
     ) -> tuple[list[Image.Image], list[float]]:
         """录制动画帧序列（GIF / MP4 用）。
 
@@ -520,6 +571,7 @@ class CaptureEngine:
         deadline = time.monotonic() + max_wait
         next_t = time.monotonic()  # 自适应节奏基准
         while time.monotonic() < deadline:
+            self._raise_if_cancelled(cancel_event)
             next_t += interval
             wait = next_t - time.monotonic()
             if wait > 0:
@@ -551,6 +603,7 @@ class CaptureEngine:
         stable_frames: int = ANIMATION_STABLE_FRAMES,
         on_frame=None,
         scroll_limit: int | None = None,   # 高度锁定时限制录制范围
+        cancel_event=None,
     ) -> tuple[list[Image.Image], list[float]]:
         """滚动逐帧录制整页（GIF / MP4 用）。
 
@@ -590,6 +643,7 @@ class CaptureEngine:
             return frames, times
         # 长页面：在 max_wait 内均匀滚动到底，捕获滚动过程与逐段入场动画
         for i in range(1, max_frames):
+            self._raise_if_cancelled(cancel_event)
             p = i / (max_frames - 1)
             y = int(total * p)
             try:

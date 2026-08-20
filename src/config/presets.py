@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "2.9.0"
+VERSION = "3.0.0"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
@@ -50,9 +50,19 @@ MP4_FPS_RANGE = (24, 60)
 GIF_LOOP = 0            # 0 = 无限循环（默认开关开启）
 GIF_MAX_FRAMES = 900    # GIF 截取上限帧数（最高 50fps × 15s = 750 帧，留些余量）
 
-# 批量导出单文件看门狗超时（秒）：Playwright 各步骤自带 30s 超时，这里再加
-# 一层整文件上限兜底，避免个别页面 / 浏览器异常导致界面"卡死"无法继续
+# 批量导出单文件看门狗超时（秒）：超过该时长后**不强制中止**（任务大 /
+# 机器性能弱时属正常慢，直接退出会白白丢掉已完成部分），改为提醒 + 继续等待，
+# 由用户点击「取消任务」主动停止
 BATCH_ITEM_TIMEOUT_SECONDS = 900
+
+# 静态导出（PNG/PDF）渲染节流：无头模式下 requestAnimationFrame 不锁 60fps，
+# 密集 rAF 画布动画会以数百 fps 占满渲染主线程，evaluate 续跑与 Playwright
+# 超时都会失效 → 导出卡死。节流到 ~4fps：装饰性循环动画几乎不耗 CPU，
+# 一次性绘制仍可完成，重交互页面也能正常收敛
+STATIC_RENDER_RAF_THROTTLE_MS = 250
+
+# 滚动触发 reveal 遍历的步数上限：超长页面只滚前 N 步，避免遍历自身耗时过长
+SCROLL_REVEAL_MAX_STEPS = 40
 
 # 动画帧捕获加速：中间动画帧走 CDP JPEG 直采（JPEG 编码/解码远快于 PNG，
 # 整页采样率可提升数倍），质量取 95 视觉无损；最终静帧（PNG/PDF）仍走 PNG 无损通道。

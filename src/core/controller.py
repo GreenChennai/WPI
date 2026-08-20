@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import urllib.parse
 from dataclasses import dataclass, field
 
@@ -29,6 +30,16 @@ class ExportParams:
     use_ffmpeg: bool = True
     full_page: bool = True          # PNG/PDF：整页导出（高度随网页实际内容长度）
     extra_warnings: list[str] = field(default_factory=list)
+
+
+class ExportCancelledError(RuntimeError):
+    """用户点击「取消任务」时抛出（正常中断，非错误，用于区分取消与失败）。"""
+
+
+def _check_cancel(cancel_event) -> None:
+    """导出各阶段检查取消标志，命中即抛 ExportCancelledError。"""
+    if cancel_event is not None and cancel_event.is_set():
+        raise ExportCancelledError("导出任务已取消")
 
 
 def playback_durations(times: list[float], fps: int) -> tuple[list[int], float]:
@@ -88,7 +99,7 @@ def build_url(source: str, server) -> str:
     return url
 
 
-def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
+def run_export_sync(params: ExportParams, progress=None, status=None, cancel_event=None) -> dict:
     from core.browser_host import BrowserHost
     from core.capture_engine import CaptureEngine
     from core.static_server import StaticServer
@@ -99,6 +110,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
 
     if not params.output_path:
         raise ValueError("未指定输出路径")
+    _check_cancel(cancel_event)
 
     def _status(msg: str) -> None:
         if status is not None:
@@ -127,6 +139,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             server.start()
             url = build_url(params.source, server)
         _progress(8)
+        _check_cancel(cancel_event)
 
         _status("启动系统浏览器内核…")
         # 在线网站用持久化用户目录（cookies/登录态保留、降低人机校验）；
@@ -137,13 +150,19 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             viewport=(params.width, params.width),
         )
         _progress(25)
+        _check_cancel(cancel_event)
 
         _status("渲染页面…")
         engine = CaptureEngine.load(
-            browser, url, (params.width, params.width), device_scale=params.scale
+            browser, url, (params.width, params.width),
+            device_scale=params.scale,
+            # 静态导出（PNG/PDF）节流 rAF + 模拟减少动效，消除密集动画页面
+            # 主线程被占满导致的 evaluate 卡死（GIF/MP4 需完整动画，不节流）
+            static=params.format in ("PNG", "PDF"),
         )
         warnings.extend(engine.collect_resource_warnings())
         _progress(40)
+        _check_cancel(cancel_event)
 
         # 导出前确保内容已完整呈现（字体 / 图片加载 + 动画收敛到终态），
         # 避免截到未渲染的纯色块。GIF/MP4 需录制动画过程：等资源 + 滚动触发
@@ -154,6 +173,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         else:
             engine.settle()
         _progress(45)
+        _check_cancel(cancel_event)
 
         # 高度锁定：视口高度设为锁定值（浏览器窗口能呈现的最高高度），
         # 内容不压缩，超出部分不导出
@@ -190,6 +210,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                 early_stop=False,
                 full_page=not (params.height > 0),
                 on_frame=_on_frame,
+                cancel_event=cancel_event,
             )
             durations, play_fps = playback_durations(times, params.fps)
             _status("编码 GIF…")
@@ -224,6 +245,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                 early_stop=False,          # 录满 max_wait 时长
                 full_page=not (params.height > 0),
                 on_frame=_on_frame,
+                cancel_event=cancel_event,
             )
             _durations, play_fps = playback_durations(times, params.fps)
             _status("编码 MP4…")
@@ -252,6 +274,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                     height_css=int(params.height),
                     transparent=params.transparent,
                     scale=params.scale,
+                    cancel_event=cancel_event,
                 )
                 result["width"] = image.size[0]
                 result["height"] = image.size[1]
@@ -264,7 +287,8 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                 # 内部对未超上限的页面仍单拍优先
                 if params.scale > 2:
                     image = engine.capture_highres(
-                        transparent=params.transparent, scale=params.scale
+                        transparent=params.transparent, scale=params.scale,
+                        cancel_event=cancel_event,
                     )
                 else:
                     image = engine.capture_final_frame(
@@ -333,15 +357,16 @@ def run_batch_sync(
     params_list: list[ExportParams],
     progress=None,
     status=None,
+    cancel_event=None,
 ) -> dict:
     """批量导出：依次导出 params_list 中的每一项。
 
     任一文件失败即停止并向上抛出（遇错停止、成功继续，由调用方回报）。
     重名文件自动追加数字后缀，不覆盖。
     返回 {"batch": True, "results": [...], "count": N}。
-    每项在独立线程中执行并套看门狗超时（BATCH_ITEM_TIMEOUT_SECONDS）：
-    Playwright 步骤自带 30s 超时，但浏览器 / 页面偶发卡死时整项仍可能长期
-    阻塞，兜底报错中止，避免 GUI 停在某个百分比无法继续。
+    每项在独立线程中执行并套看门狗（BATCH_ITEM_TIMEOUT_SECONDS）：超时
+    **不强制中止**——任务量大 / 机器性能弱时属正常慢，强行退出会白白丢失
+    已完成部分，改为提醒 + 继续等待，由用户点击「取消任务」主动停止。
     """
     import threading
 
@@ -350,6 +375,7 @@ def run_batch_sync(
     total = len(params_list)
     results: list[dict] = []
     for i, params in enumerate(params_list):
+        _check_cancel(cancel_event)
         stem = os.path.basename(params.source)
         if status is not None:
             status(f"导出 {i + 1}/{total}: {stem}")
@@ -366,17 +392,29 @@ def run_batch_sync(
                         if progress is not None else None
                     ),
                     status=status,
+                    cancel_event=cancel_event,
                 )
             except Exception:
                 box["exc"] = sys.exc_info()
 
         worker = threading.Thread(target=_item_worker, daemon=True)
         worker.start()
-        worker.join(timeout=BATCH_ITEM_TIMEOUT_SECONDS)
-        if worker.is_alive():
-            raise TimeoutError(
-                f"导出超时（超过 {BATCH_ITEM_TIMEOUT_SECONDS} 秒），已中止: {stem}"
-            )
+        start = time.monotonic()
+        warned = False
+        while worker.is_alive():
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            worker.join(timeout=1.0)
+            if not warned and time.monotonic() - start >= BATCH_ITEM_TIMEOUT_SECONDS:
+                warned = True
+                if status is not None:
+                    status(
+                        f"导出已超过 {BATCH_ITEM_TIMEOUT_SECONDS} 秒…"
+                        "页面较大或机器性能较低时属正常，可继续等待，"
+                        "或点击「取消任务」中止"
+                    )
+        if cancel_event is not None and cancel_event.is_set():
+            raise ExportCancelledError("导出任务已取消")
         if box["exc"] is not None:
             _exc_type, _exc, tb = box["exc"]
             raise _exc.with_traceback(tb)
@@ -392,12 +430,14 @@ try:  # GUI 场景才依赖 PySide6；CLI/冒烟测试可脱离 GUI 运行
         status = Signal(str)
         result = Signal(object)
         failed = Signal(str)
+        cancelled = Signal()
 
         def __init__(self, parent=None):
             super().__init__(parent)
             self._params: ExportParams | None = None
             self._params_list: list[ExportParams] | None = None
             self._batch: bool = False
+            self._cancel_event = None
 
         def set_params(self, params: ExportParams) -> None:
             self._params = params
@@ -406,6 +446,9 @@ try:  # GUI 场景才依赖 PySide6；CLI/冒烟测试可脱离 GUI 运行
         def set_params_list(self, params_list: list[ExportParams]) -> None:
             self._params_list = params_list
             self._batch = True
+
+        def set_cancel_event(self, event) -> None:
+            self._cancel_event = event
 
         def run(self) -> None:
             if self._batch:
@@ -417,8 +460,11 @@ try:  # GUI 场景才依赖 PySide6；CLI/冒烟测试可脱离 GUI 运行
                         self._params_list,
                         progress=lambda n: self.progress.emit(n),
                         status=lambda m: self.status.emit(m),
+                        cancel_event=self._cancel_event,
                     )
                     self.result.emit(res)
+                except ExportCancelledError:
+                    self.cancelled.emit()
                 except Exception as exc:  # noqa: BLE001
                     try:
                         import traceback
@@ -437,8 +483,11 @@ try:  # GUI 场景才依赖 PySide6；CLI/冒烟测试可脱离 GUI 运行
                     params,
                     progress=lambda n: self.progress.emit(n),
                     status=lambda m: self.status.emit(m),
+                    cancel_event=self._cancel_event,
                 )
                 self.result.emit(res)
+            except ExportCancelledError:
+                self.cancelled.emit()
             except Exception as exc:  # noqa: BLE001
                 try:
                     import traceback
