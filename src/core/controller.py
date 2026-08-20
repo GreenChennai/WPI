@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import urllib.parse
 from dataclasses import dataclass, field
 
@@ -128,8 +129,13 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         _progress(8)
 
         _status("启动系统浏览器内核…")
-        browser = BrowserHost()
-        browser.launch()
+        # 在线网站用持久化用户目录（cookies/登录态保留、降低人机校验）；
+        # 本地项目无需登录态，仍走轻量临时上下文
+        browser = BrowserHost(use_profile=is_url)
+        browser.launch(
+            device_scale_factor=params.scale,
+            viewport=(params.width, params.width),
+        )
         _progress(25)
 
         _status("渲染页面…")
@@ -333,7 +339,14 @@ def run_batch_sync(
     任一文件失败即停止并向上抛出（遇错停止、成功继续，由调用方回报）。
     重名文件自动追加数字后缀，不覆盖。
     返回 {"batch": True, "results": [...], "count": N}。
+    每项在独立线程中执行并套看门狗超时（BATCH_ITEM_TIMEOUT_SECONDS）：
+    Playwright 步骤自带 30s 超时，但浏览器 / 页面偶发卡死时整项仍可能长期
+    阻塞，兜底报错中止，避免 GUI 停在某个百分比无法继续。
     """
+    import threading
+
+    from config.presets import BATCH_ITEM_TIMEOUT_SECONDS
+
     total = len(params_list)
     results: list[dict] = []
     for i, params in enumerate(params_list):
@@ -341,15 +354,33 @@ def run_batch_sync(
         if status is not None:
             status(f"导出 {i + 1}/{total}: {stem}")
         params.output_path = _unique_path(params.output_path)
-        res = run_export_sync(
-            params,
-            progress=(
-                lambda n: progress(int((i + n / 100.0) / total * 100))
-                if progress is not None else None
-            ),
-            status=status,
-        )
-        results.append(res)
+
+        box: dict = {"res": None, "exc": None}
+
+        def _item_worker() -> None:
+            try:
+                box["res"] = run_export_sync(
+                    params,
+                    progress=(
+                        lambda n: progress(int((i + n / 100.0) / total * 100))
+                        if progress is not None else None
+                    ),
+                    status=status,
+                )
+            except Exception:
+                box["exc"] = sys.exc_info()
+
+        worker = threading.Thread(target=_item_worker, daemon=True)
+        worker.start()
+        worker.join(timeout=BATCH_ITEM_TIMEOUT_SECONDS)
+        if worker.is_alive():
+            raise TimeoutError(
+                f"导出超时（超过 {BATCH_ITEM_TIMEOUT_SECONDS} 秒），已中止: {stem}"
+            )
+        if box["exc"] is not None:
+            _exc_type, _exc, tb = box["exc"]
+            raise _exc.with_traceback(tb)
+        results.append(box["res"])
     return {"batch": True, "results": results, "count": total}
 
 

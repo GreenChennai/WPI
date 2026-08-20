@@ -1,54 +1,44 @@
-# WPI v2.8.0 优化清单
+# WPI v2.9.0 优化清单
 
-> 目标：注释重写 + 代码质量清理 + 版本升级 + 测试排除 + README 精简 + CI 自动构建发行
-> 文件：src/、tools/、README.md、.gitignore
+> 目标：修复 CI 构建失败 + 批量导出卡死防护 + 在线网站登录态保留
+> 文件：src/、tools/、.github/workflows/、README.md
 > 关联：GitHub Actions 发行流程
 
 ---
 
 ## 优化项列表
 
-### 1. 注释重写（全部源码）
-- **现状**：全库注释以「v1.x/v2.x：改动说明」的版本号式写法为主，描述"改了什么"而非"代码干什么、为什么这样写"。
-- **目标**：改为「功能 + 原因」式注释；关键算法（JPEG CDP 采样、真实时间播放、PDF 分页、单端口挂载、单实例锁、PyInstaller 瘦身）保留深入说明；去除版本号痕迹。
-- **状态**：✅ 已完成（commit cadd05a，全库 23 文件去版本号化，改为功能+原因）
+### 1. 修复 GitHub Actions 构建失败（离线冒烟 UnicodeEncodeError）
+- **现状**：CI 上 PyInstaller 打包成功，但冒烟 `smoke.png` rc=1，exe 输出 `导出失败: UnicodeEncodeError: 'charmap' codec can't encode characters in position 9-16`。
+- **根因**：windowed 冻结态 `_attach_parent_console()` 中 `AttachConsole(-1)` 失败时只返回 0 不抛异常，随后 `open("CONOUT$")` 静默失败，stdout 保持为 PyInstaller 按 locale 编码（英文 runner 为 cp1252）打开的重定向管道——打印中文状态即崩溃；本地中文系统（cp936）编码中文字符因此无法复现。
+- **修复**：`_attach_parent_console()` 检查 AttachConsole 返回值；无论成败都把 stdout/stderr 收敛为可写中文的 UTF-8 流（None 兜底 CONOUT$/devnull、附着时指到控制台、重定向时 reconfigure 为 UTF-8）。workflow env 追加 `PYTHONIOENCODING=utf-8`。
+- **状态**：✅ 已完成
 
-### 2. 代码质量清理
-- **现状**：`style.py` 存在空壳函数 `apply_object_names()`（现由控件直接 setObjectName）；`primary_style()` 疑为未使用备用代码；`main.py` 有 `if True:` 包装语句；`presets.py` 尾部有遗留死注释。
-- **目标**：删除未使用/空壳代码，消除 `if True:` 代码异味，清理死注释。
-- **状态**：✅ 已完成（commit a3984ad）
+### 2. 多选导出 PNG 卡死防护
+- **现状**：用户反馈多选导出 PNG 卡在 8% 无法导出。用 demo 在主线程与 QThread 下批量（2/3/6 项、X1/X2）复现均正常完成，无法本地复现原问题。
+- **防护**：`run_batch_sync` 每项在独立守护线程执行并套看门狗（`BATCH_ITEM_TIMEOUT_SECONDS=900`），超时抛明确错误中止，杜绝 GUI 无限等待；Playwright 各步骤本身有 30s 超时兜底。
+- **状态**：✅ 已完成（仍需用户用真实项目验证；若仍出现，请提供最小复现项目）
 
-### 3. 版本号升级到 2.8.0
-- **现状**：`src/config/presets.py`、`pyproject.toml`、`tools/build.py` 三处仍为 2.7.0。
-- **目标**：统一改为 2.8.0。
-- **状态**：✅ 已完成（commit e903f2e）
+### 3. 在线网站导出保留登录态 / 降低人机校验
+- **现状**：在线网站导出用 Playwright 临时上下文，无 cookie，访问需登录/有人机校验的站点退到登录页、验证页。
+- **修复**：`BrowserHost` 支持持久化用户目录（`use_profile=True`，仅在线 URL 启用）；数据落在 `%LOCALAPPDATA%\WPI\browser-profile`（可 `WPI_PROFILE_DIR` 覆盖），与系统浏览器完全隔离；隐藏自动化标记（`--disable-blink-features=AutomationControlled`、忽略 `--enable-automation`）降低校验误判；目录被占用时降级为临时上下文保证导出可用。
+- **验证**：两次独立启动写/读 cookie 成功持久化。
+- **状态**：✅ 已完成
 
-### 4. tests 测试文件不随仓库同步
-- **现状**：`tests/` 已提交进 git（7 个文件）。
-- **目标**：`.gitignore` 加入 `tests/`，`git rm -r --cached tests`，此后测试文件仅存本地。
-- **状态**：✅ 已完成（commit cedd3d4，tests/ 已从 git 移除并加入 .gitignore）
+### 4. 版本号升级到 2.9.0
+- **现状**：`src/config/presets.py`、`pyproject.toml`、`tools/build.py`、workflow 版本段四处仍为 2.8.0。
+- **目标**：统一改为 2.9.0。
+- **状态**：✅ 已完成（本地构建 `WPI-v2.9.0-7a598e5\`，冒烟全通过）
 
-### 5. README「功能特性」精简
-- **现状**：约 25 行冗长纯文字描述，细节堆砌。
-- **目标**：精简为结构化关键特性列表（保留真实功能与用户关心的点），删去赘述。
-- **状态**：✅ 已完成（commit 951769f，功能特性精简为 9 条关键项，同步目录结构/测试/构建说明）
-
-### 6. GitHub Actions 自动构建 + Release
-- **现状**：无 CI，版本由本地 `tools/build.py` 手动构建。
-- **目标**：新增 workflow：Windows 上 PyInstaller 打包 → 下载 gyan.dev ffmpeg → 打 zip（exe + ffmpeg + README + VERSION.txt）→ 创建 GitHub Release 并上传资产。
-- **状态**：✅ 已完成（commit e9f97c9）
-
-### 7. 提交推送 + 本地构建验证
+### 5. 提交推送 + Actions 验证
 - **现状**：本地待推送。
-- **目标**：提交推送、本地构建到 `E:\平日资料\构建`，验证 Actions 触发。
-- **状态**：✅ 已完成（已推送 origin/main 到 14f2231；本地构建 `E:\平日资料\构建\WPI-v2.8.0-14f2231\`，冒烟测试全部通过；Actions 已随 push 自动触发）
+- **目标**：提交推送、验证 Actions 构建通过并生成 Release。
+- **状态**：⬜ 待执行
 
 ---
 
 ## 依赖关系
 
-- 项 2 先于项 1 执行（先删死代码，避免给即将删除的代码写注释）。
-- 项 3 可随时执行，独立。
-- 项 4 独立，尽早执行避免 tests 干扰后续提交。
-- 项 5/6 独立。
-- 项 7 依赖 1-6 全部完成。
+- 项 1/2/3 相互独立，可并行排查。
+- 项 4 依赖 1-3 修复完成后再统一改版号。
+- 项 5 依赖 1-4 全部完成。

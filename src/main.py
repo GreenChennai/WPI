@@ -57,17 +57,46 @@ def _attach_parent_console() -> None:
 
     PyInstaller `--windowed` 的进程没有控制台；通过 --export 从命令行调用时，
     挂到父进程（cmd/PowerShell）的控制台上以打印进度与结果。
+
+    注意：AttachConsole 失败时**不会**抛异常（只返回 0），此时 open("CONOUT$")
+    会失败而异常分支被静默吞掉，stdout 保持为 PyInstaller 用 locale 编码
+    （英文系统为 cp1252）打开的重定向管道——CI 冒烟这类场景打印中文就会抛
+    UnicodeEncodeError。因此无论是否附着成功，都要把 stdout/stderr 收敛成
+    可写中文的 UTF-8 流。
     """
     if os.name != "nt" or not getattr(sys, "frozen", False):
         return
     try:
         import ctypes
 
-        ctypes.windll.kernel32.AttachConsole(-1)  # ATTACH_PARENT_PROCESS
-        sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
-        sys.stderr = sys.stdout
+        attached = bool(ctypes.windll.kernel32.AttachConsole(-1))
     except Exception:
-        pass
+        attached = False
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            # windowed 启动且没有继承到输出流：优先父控制台，否则写空设备兜底
+            for target in ("CONOUT$", os.devnull):
+                try:
+                    stream = open(target, "w", encoding="utf-8", errors="replace")
+                    break
+                except Exception:
+                    stream = None
+            if stream is not None:
+                setattr(sys, name, stream)
+        elif attached:
+            # 已附着父控制台：直接把输出指到控制台（utf-8），让用户看到进度
+            try:
+                stream = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+                setattr(sys, name, stream)
+            except Exception:
+                pass
+        else:
+            # 输出被重定向到管道/文件：强制 UTF-8，避免 locale 编码打印中文崩溃
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 
 def _cmd_export(args: argparse.Namespace) -> int:

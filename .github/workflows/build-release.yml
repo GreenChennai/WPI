@@ -10,6 +10,9 @@ permissions:
 
 env:
   PYTHONUTF8: "1"
+  # 冻结态 exe 由 PyInstaller 按 locale 编码初始化重定向的 stdout；
+  # 显式指定 UTF-8，避免英文 runner 上打印中文状态时抛 UnicodeEncodeError
+  PYTHONIOENCODING: "utf-8"
 
 jobs:
   build:
@@ -49,7 +52,7 @@ jobs:
       - name: Determine version
         shell: pwsh
         run: |
-          $ver = "2.8.0-" + (git rev-parse --short=7 HEAD)
+          $ver = "2.9.0-" + (git rev-parse --short=7 HEAD)
           $buildDir = (Get-ChildItem "dist_wpi" -Directory | Select-Object -First 1).FullName
           "VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
           "BUILD_DIR=$buildDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
@@ -68,7 +71,7 @@ jobs:
           tag_name: "WPI-${{ env.VERSION }}"
           name: "WPI ${{ env.VERSION }}"
           body: |
-            WPI v2.8.0 自动构建产物（推送到 main 触发）。
+            WPI v2.9.0 自动构建产物（推送到 main 触发）。
 
             内含：单文件程序 WPI.exe、附随 ffmpeg.exe、README、VERSION.txt。
           files: |

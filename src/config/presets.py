@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "2.8.0"
+VERSION = "2.9.0"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
@@ -49,6 +49,10 @@ MP4_FPS_PRESETS = (24, 30, 48, 60)
 MP4_FPS_RANGE = (24, 60)
 GIF_LOOP = 0            # 0 = 无限循环（默认开关开启）
 GIF_MAX_FRAMES = 900    # GIF 截取上限帧数（最高 50fps × 15s = 750 帧，留些余量）
+
+# 批量导出单文件看门狗超时（秒）：Playwright 各步骤自带 30s 超时，这里再加
+# 一层整文件上限兜底，避免个别页面 / 浏览器异常导致界面"卡死"无法继续
+BATCH_ITEM_TIMEOUT_SECONDS = 900
 
 # 动画帧捕获加速：中间动画帧走 CDP JPEG 直采（JPEG 编码/解码远快于 PNG，
 # 整页采样率可提升数倍），质量取 95 视觉无损；最终静帧（PNG/PDF）仍走 PNG 无损通道。
