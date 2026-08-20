@@ -202,11 +202,35 @@ class CaptureEngine:
         """返回页面实际内容高度（CSS px）。"""
         return max(1, int(self.content_size()[1]))
 
+    def has_below_fold_canvas(self) -> bool:
+        """页面是否有完全处于首屏视口之外的 <canvas>。
+
+        2D canvas 动画在视口外时 Chromium 合成器不刷新其光栅，captureBeyondViewport
+        单拍整页会拿到陈旧/欠渲染的画面（静态导出表现为噪波墨流消失、墨滴看
+        情况；动画导出表现为一闪一闪）。存在此类 canvas 时应改分块滚动截取，
+        让每个 canvas 在屏时再拍。
+        """
+        try:
+            vh = int(self.page.evaluate("() => window.innerHeight || 600"))
+            return bool(self.page.evaluate(
+                """(vh) => {
+                    for (const c of document.querySelectorAll('canvas')) {
+                        const r = c.getBoundingClientRect();
+                        if (r.width > 0 && r.top >= vh) return true;
+                    }
+                    return false;
+                }""",
+                vh,
+            ))
+        except Exception:
+            return False
+
     def capture_highres(
         self,
         height_css: int | None = None,
         transparent: bool = False,
         scale: int = 1,
+        force_tiled: bool = False,
         cancel_event=None,
     ) -> Image.Image:
         """分块截图 + 纵向拼接，用于超长 / 高倍率整页导出。
@@ -222,7 +246,9 @@ class CaptureEngine:
 
         两条关键优化路径：
         1) **单拍优先**——内容高×倍率在安全上限内时直接 captureBeyondViewport
-           单拍（fixed/sticky 元素只画一次、无拼接、无接缝）；
+           单拍（fixed/sticky 元素只画一次、无拼接、无接缝）；force_tiled=True
+           时跳过单拍：页面存在视口外 canvas 动画时单拍会拿到陈旧光栅，
+           必须分块让每个 canvas 在屏时截取。
         2) 确需分块时，非首块临时隐藏「顶部小条」类 position:fixed 元素，
            拼接后恢复，顶部状态栏不再在每块拼接处重复出现。
            只隐藏 top ≤ 120px 且 height ≤ 200px 的"顶部小条"（顶部导航/状态栏），
@@ -240,7 +266,7 @@ class CaptureEngine:
         # 单拍优先：整页像素尺寸未超安全上限时一次拍全
         # （fixed/sticky 只画一次、无拼接），否则分块
         scale_f = max(1, int(scale or 1))
-        if height_css is None and (W * scale_f) <= 15000 and (total * scale_f) <= 15000:
+        if not force_tiled and height_css is None and (W * scale_f) <= 15000 and (total * scale_f) <= 15000:
             return self.capture_final_frame(transparent=transparent, full_page=True)
         chunks: list[Image.Image] = []
         y = 0
@@ -670,6 +696,11 @@ class CaptureEngine:
         色块」的问题。首帧先停在顶部以捕获首屏英雄动画，随后在 max_wait 时长
         内均匀滚到底。scroll_limit 给定（高度锁定）时仅录制顶部该高度范围。
         返回 (帧序列, 各帧采集时刻秒)。
+
+        视口内截取而非 captureBeyondViewport 整页：2D canvas 动画在视口外时
+        Chromium 合成器不会刷新其光栅，整页单拍会得到陈旧的冻结帧（表现为
+        GIF 里一闪一闪）；视口内（在屏）截取每帧都是最新光栅，动画流畅。
+        逐帧走 CDP JPEG 直采加速（与 capture_frames 同通道）。
         """
         vh = self.page.evaluate("() => window.innerHeight || 600")
         total = self.page.evaluate(
@@ -680,7 +711,7 @@ class CaptureEngine:
             total = min(total, max(0, int(scroll_limit)))
         interval = 1.0 / max(1, int(fps))
         max_frames = max(int(max_wait * fps), 8)
-        frames: list[Image.Image] = [self.capture_final_frame(full_page=False)]
+        frames: list[Image.Image] = [self._shot(full_page=False, jpeg=True)]
         times: list[float] = [time.monotonic()]
         if on_frame is not None:
             on_frame(1)
@@ -688,8 +719,9 @@ class CaptureEngine:
         if total <= vh:
             deadline = time.monotonic() + max_wait
             while time.monotonic() < deadline and len(frames) < max_frames:
+                self._raise_if_cancelled(cancel_event)
                 time.sleep(interval)
-                frame = self.capture_final_frame(full_page=False)
+                frame = self._shot(full_page=False, jpeg=True)
                 frames.append(frame)
                 times.append(time.monotonic())
                 if on_frame is not None:
@@ -709,7 +741,7 @@ class CaptureEngine:
             except Exception:
                 pass
             time.sleep(interval)
-            frame = self.capture_final_frame(full_page=False)
+            frame = self._shot(full_page=False, jpeg=True)
             frames.append(frame)
             times.append(time.monotonic())
             if on_frame is not None:

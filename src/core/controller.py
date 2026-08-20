@@ -12,8 +12,6 @@ import time
 import urllib.parse
 from dataclasses import dataclass, field
 
-from config.presets import GIF_MAX_FRAMES
-
 
 @dataclass
 class ExportParams:
@@ -194,21 +192,21 @@ def run_export_sync(params: ExportParams, progress=None, status=None, cancel_eve
         }
 
         if params.format == "GIF":
-            # 与 PNG 尺寸语义一致——只限制宽度，高度为网页自然内容高度（整页逐帧）；
-            # 高度锁定时只录制顶部锁定区域。
+            # 与 PNG 尺寸语义一致——只限制宽度，高度为网页自然内容高度。
+            # 滚动逐帧录制（视口内截取）：视口外 canvas 动画在整页 captureBeyond
+            # Viewport 单拍里是陈旧光栅（会一闪一闪），滚动录制让每段内容在屏
+            # 时截取 → 动画流畅且覆盖整页。高度锁定时只录制顶部锁定区域。
             # 录满 max_wait 时长（真实时间采样），按真实采集节奏计算每帧延迟，
             # 播放速度恒等于真实时间，不用重复帧把动画拖慢。
-            _status("录制整页动画帧…")
+            _status("滚动录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
                 _progress(min(85, 45 + n))
 
-            frames, times = engine.capture_frames(
+            frames, times = engine.capture_scroll_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
-                max_frames=GIF_MAX_FRAMES,
-                early_stop=False,
-                full_page=not (params.height > 0),
+                scroll_limit=int(params.height) if params.height and params.height > 0 else None,
                 on_frame=_on_frame,
                 cancel_event=cancel_event,
             )
@@ -230,20 +228,19 @@ def run_export_sync(params: ExportParams, progress=None, status=None, cancel_eve
             _progress(98)
 
         elif params.format == "MP4":
-            # 与 GIF 共用整页逐帧录制，FFmpeg 高保真编码（x264 crf0）。
+            # 与 GIF 共用滚动逐帧录制，FFmpeg 高保真编码（x264 crf0）。
             # 逐帧 JPEG 加速采样 + 按真实采样节奏编码——采样率达不到设定帧率时
             # 按实际帧率编码（播放速度 = 真实时间，不拖慢）；达到时按设定帧率
             # 编码（帧数足、时长正确）。
-            _status("录制整页动画帧…")
+            _status("滚动录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
                 _progress(min(85, 45 + n))
 
-            frames, times = engine.capture_frames(
+            frames, times = engine.capture_scroll_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
-                early_stop=False,          # 录满 max_wait 时长
-                full_page=not (params.height > 0),
+                scroll_limit=int(params.height) if params.height and params.height > 0 else None,
                 on_frame=_on_frame,
                 cancel_event=cancel_event,
             )
@@ -284,10 +281,14 @@ def run_export_sync(params: ExportParams, progress=None, status=None, cancel_eve
                 actual_w, _actual_h = engine.prepare_full_page(params.width, None)
                 # 高倍率（4X/8X）下 captureBeyondViewport 单拍受 Chromium 最大
                 # 截图尺寸限制会截断组件 → 改分块滚动截图 + 拼接；capture_highres
-                # 内部对未超上限的页面仍单拍优先
-                if params.scale > 2:
+                # 内部对未超上限的页面仍单拍优先。
+                # 页面存在视口外 canvas 动画时同样分块：整页单拍会拿到陈旧光栅
+                # （噪波墨流消失 / 墨滴看情况），分块让每个 canvas 在屏时截取。
+                below_fold_canvas = engine.has_below_fold_canvas()
+                if params.scale > 2 or below_fold_canvas:
                     image = engine.capture_highres(
                         transparent=params.transparent, scale=params.scale,
+                        force_tiled=below_fold_canvas,
                         cancel_event=cancel_event,
                     )
                 else:
