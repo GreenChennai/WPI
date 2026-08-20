@@ -27,3 +27,6 @@ Thumbs.db
 
 # Local settings (created at runtime next to the exe / repo)
 WPI_settings.json
+
+# Local tests (kept only on the developer machine, not synced to GitHub)
+tests/
