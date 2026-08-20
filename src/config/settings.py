@@ -1,4 +1,4 @@
-"""WPI 设置文件（v1.4.0）。
+"""WPI 设置文件。
 
 在软件同级目录维护 `WPI_settings.json`：启动时检测是否已存在，
 不存在则创建并写入默认值；存在则读取回填到界面。
@@ -20,7 +20,7 @@ DEFAULTS: dict = {
     "workspace_dir": "",       # 留空 = 使用默认 WorkerFile 目录
     "width": DEFAULT_WIDTH,    # 导出宽度（px）
     "output_path": "",         # 最近一次导出文件位置
-    "output_dir": "",          # 最近一次导出所在目录（兼容旧字段）
+    "output_dir": "",          # 旧版字段：最近一次导出所在目录（兼容读取）
 }
 
 

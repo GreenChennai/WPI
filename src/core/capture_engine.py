@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 
 from PIL import Image
 
-# v2.4.0：本软件会自产高倍率大图（4X/8X 整页可超 1 亿像素），放开 PIL
-# 防炸弹像素上限（此前 178M 上限会误报 DecompressionBombError）。
+# 本软件会自产高倍率大图（4X/8X 整页可超 1 亿像素），放开 PIL
+# 防炸弹像素上限（默认 178M 会误报 DecompressionBombError）。
 Image.MAX_IMAGE_PIXELS = None
 
 from config.presets import (
@@ -47,7 +47,7 @@ class CaptureEngine:
         url: str,
         viewport: tuple[int, int],
         load_timeout_ms: int = 30000,
-        device_scale: int = 1,   # v2.1.0：分辨率倍率（原生渲染，非超分）
+        device_scale: int = 1,   # 分辨率倍率（原生渲染，非超分）
     ) -> CaptureEngine:
         context, page = browser.new_page(viewport, device_scale_factor=device_scale)
         page.goto(url, wait_until="load", timeout=load_timeout_ms)
@@ -72,7 +72,7 @@ class CaptureEngine:
         """返回 (有限时长运行的动画数, 无限循环运行的动画数)。
 
         无限循环动画（iterations === Infinity）永远不会自然结束，
-        整页导出时无需等待它（v1.3.0 需求：只等有限时长动画）。
+        整页导出时无需等待它（只等有限时长动画）。
         """
         return tuple(
             self.page.evaluate(
@@ -102,7 +102,7 @@ class CaptureEngine:
         return self.page.screenshot(omit_background=transparent, full_page=full_page)
 
     def _cdp_session(self):
-        """v2.6.0：获取（并缓存）CDP 会话，跳过 Playwright 字体等待等开销。"""
+        """获取（并缓存）CDP 会话，跳过 Playwright 字体等待等开销。"""
         if getattr(self, "_cdp", None) is not None:
             return self._cdp
         try:
@@ -113,9 +113,9 @@ class CaptureEngine:
         return self._cdp
 
     def _screenshot_cdp(self, full_page: bool = False, jpeg: bool = False) -> bytes | None:
-        """v2.6.0：CDP Page.captureScreenshot 直连（约快 25%），失败回退。
+        """CDP Page.captureScreenshot 直连（约快 25%），失败回退 Playwright。
 
-        v2.7.0：动画逐帧采集走 `format=jpeg`（质量 95 视觉无损）——JPEG 编码/解码
+        动画逐帧采集走 `format=jpeg`（质量 95 视觉无损）——JPEG 编码/解码
         远快于 PNG，整页采样率可提升数倍，动画更流畅；静帧仍用 PNG 无损通道。
         """
         import base64
@@ -166,7 +166,7 @@ class CaptureEngine:
         transparent: bool = False,
         scale: int = 1,
     ) -> Image.Image:
-        """分块截图 + 纵向拼接（v2.3.0 重做，替代 v2.2.0 的滚动+手工裁切）。
+        """分块截图 + 纵向拼接，用于超长 / 高倍率整页导出。
 
         方案：滚动到目标行（强制 Chromium 栅格化该区域，避免远端区域白块），
         再用**视口相对 clip**（{y: rel.., height: take}）截图——clip 由浏览器
@@ -177,18 +177,16 @@ class CaptureEngine:
         height_css=None 时捕获整页；给定值时只捕获顶部 min(内容高, height_css)
         高度（高度锁定，超出不导出）。
 
-        v2.4.0 优化：
+        两条关键优化路径：
         1) **单拍优先**——内容高×倍率在安全上限内时直接 captureBeyondViewport
            单拍（fixed/sticky 元素只画一次、无拼接、无接缝）；
-        2) 确需分块时，非首块临时 `visibility:hidden` 掉 position:fixed 元素，
+        2) 确需分块时，非首块临时隐藏「顶部小条」类 position:fixed 元素，
            拼接后恢复，顶部状态栏不再在每块拼接处重复出现。
-
-        v2.6.0 优化：
-        1) **智能 fixed 隐藏**——只隐藏「顶部小条」类（top ≤ 120px 且 height ≤ 200px），
-           保留其他 fixed 元素（底部装饰/侧边标签/覆盖层），避免 v2.4 一刀切隐藏
-           导致非首块出现「组件缺失」；
-        2) 块等待延长到 400ms 并等 2 个 rAF 帧，保证 canvas/JS 重内容在该区域完成绘制
-           （v2.4 的 150ms 对含 canvas 卡片的页面不够，导致 X8 卡内空白）。
+           只隐藏 top ≤ 120px 且 height ≤ 200px 的"顶部小条"（顶部导航/状态栏），
+           保留其他 fixed 元素（底部装饰/侧边标签/覆盖层），避免一刀切隐藏
+           导致非首块「组件缺失」。
+        3) 块等待 400ms 并等 2 个 rAF 帧，保证 canvas/JS 重内容在该区域完成
+           绘制（过短的等待对含 canvas 卡片的页面不够，会导致卡内空白）。
         """
         vw = self.page.viewport_size
         W = max(1, int(vw["width"]))
@@ -196,7 +194,7 @@ class CaptureEngine:
         total = self.content_height()
         if height_css is not None:
             total = min(total, max(1, int(height_css)))
-        # v2.4.0：单拍优先——整页像素尺寸未超安全上限时一次拍全
+        # 单拍优先：整页像素尺寸未超安全上限时一次拍全
         # （fixed/sticky 只画一次、无拼接），否则分块
         scale_f = max(1, int(scale or 1))
         if height_css is None and (W * scale_f) <= 15000 and (total * scale_f) <= 15000:
@@ -209,7 +207,7 @@ class CaptureEngine:
                 self.page.evaluate("(y) => window.scrollTo(0, y)", y)
             except Exception:
                 pass
-            # v2.6.0：延长等待 + 等 2 个 rAF 帧，保证 canvas/JS 重内容在该区域完成绘制
+            # 延长等待 + 等 2 个 rAF 帧，保证 canvas/JS 重内容在该区域完成绘制
             self.page.wait_for_timeout(400)
             try:
                 self.page.evaluate(
@@ -263,12 +261,12 @@ class CaptureEngine:
         return canvas
 
     def _toggle_fixed_topbar(self, hide: bool) -> None:
-        """v2.6.0：智能隐藏"顶部小条"类 fixed 元素（拼接去重）。
+        """智能隐藏"顶部小条"类 fixed 元素（拼接去重）。
 
         只隐藏 position:fixed 且 getBoundingClientRect.top ≤ 120px 且 height ≤ 200px
         的元素（顶部导航/状态栏）。其他 fixed 元素（底部装饰条、侧边标签、覆
         盖层等）保留，确保分块截图时它们出现在文档中自己的位置（与单拍一致），
-        避免 v2.4.0 一刀切隐藏导致的「组件缺失」。
+        避免一刀切隐藏导致的「组件缺失」。
         """
         try:
             self.page.evaluate(
@@ -292,7 +290,7 @@ class CaptureEngine:
     def prepare_full_page(self, width: int | None, height: int | None) -> tuple[int, int]:
         """按导出目标尺寸设置视口，返回页面实际内容尺寸。
 
-        v1.3.0：**不再**把视口高度放大到整页内容高度，否则 `vh` / `min-height:
+        **不**把视口高度放大到整页内容高度，否则 `vh` / `min-height:
         100vh` 等以视口为基准的样式会被撑爆（表现为背景过大、元素间距失真）。
         整页内容由 `capture_final_frame(full_page=True)` 的 captureBeyondViewport
         单次截图完成，视口宽度即导出宽度、视口高度保持目标窗口高度。
@@ -317,7 +315,7 @@ class CaptureEngine:
         anims = self.running_animation_count()
         return anims == 0
 
-    # --------------------------------------------------- 资源 / 动画收敛（v1.8.0）
+    # --------------------------------------------------- 资源 / 动画收敛
     def wait_assets(self, timeout: float = ASSET_WAIT) -> None:
         """等待字体与主资源（图片）加载完成，避免截到未渲染 / 未加载的内容。
 
@@ -363,7 +361,7 @@ class CaptureEngine:
         """完成所有有限时长动画（跳到终态并渲染），返回仍在播放的无限循环动画数。
 
         用于 PNG / PDF 导出：将页面动效锁定为「播放完毕」状态（如 opacity 从
-        0 渐显、transform 位移入场），避免截到半透明 / 未展开的纯色块（v1.8.0）。
+        0 渐显、transform 位移入场），避免截到半透明 / 未展开的纯色块。
         无限循环动画无法 finish，交由调用方等待后截取。
         """
         return int(
@@ -396,7 +394,7 @@ class CaptureEngine:
         整页截图（captureBeyondViewport）一次性捕获整页，但「滚动触发型入场
         动画」只在元素进入视口时才播放；若页面从未被滚动过，这些元素停留在
         初始态（透明 / 下移），截到的是未展开内容。此处主动滚动一遍把它们
-        「激活」到终态（v1.9.0，需求 7）。任何异常都不抛出，退化为直接截图。
+        「激活」到终态。任何异常都不抛出，退化为直接截图。
         """
         try:
             self.page.evaluate(
@@ -422,12 +420,12 @@ class CaptureEngine:
 
     def settle(self, infinite_wait: float = ANIMATION_INFINITE_WAIT) -> dict:
         """导出前让页面完整呈现：字体/图片加载 + 滚动触发动画展开 + 有限动画
-        收敛到终态 + 无限动画等待固定时长后截取（v1.8.0 需求 4 + v1.9.0 需求 7）。
+        收敛到终态 + 无限动画等待固定时长后截取。
 
         返回 {"infinite": <仍在播放的无限动画数>} 供调用方诊断。
         """
         self.wait_assets()
-        # v1.9.0：先滚动一遍触发 reveal-on-scroll 入场动画
+        # 先滚动一遍触发 reveal-on-scroll 入场动画
         self.trigger_scroll_reveals()
         inf = self.freeze_animations()
         if inf > 0:
@@ -451,7 +449,7 @@ class CaptureEngine:
     ) -> bool:
         """等待有限时长动画播放完毕。
 
-        判据：`getAnimations()` 中仅存在无限循环动画时直接通过（v1.3.0），
+        判据：`getAnimations()` 中仅存在无限循环动画时直接通过，
         否则等待有限动画全部停止 且 连续多帧画面不变。
         返回 True=自然结束，False=达到上限强制截帧。
         """
@@ -479,8 +477,8 @@ class CaptureEngine:
         return False
 
     def _shot(self, full_page: bool, jpeg: bool = False):
-        """v2.6.0：截取一帧，优先 CDP（更约 25% 快），失败回退 Playwright。
-        v2.7.0：动画逐帧采集默认 JPEG 加速，静帧仍走 PNG 无损。"""
+        """截取一帧，优先 CDP（更快约 25%），失败回退 Playwright。
+        动画逐帧采集默认 JPEG 加速，静帧仍走 PNG 无损。"""
         data = self._screenshot_cdp(full_page=full_page, jpeg=jpeg)
         if data is not None:
             return Image.open(io.BytesIO(data)).convert("RGB")
@@ -492,9 +490,9 @@ class CaptureEngine:
         max_wait: float = ANIMATION_MAX_WAIT,
         max_frames: int | None = None,
         stable_frames: int = ANIMATION_STABLE_FRAMES,
-        early_stop: bool = True,   # v2.4.0：False 时录满 max_wait 时长
+        early_stop: bool = True,   # False 时录满 max_wait 时长
         full_page: bool = False,
-        jpeg: bool = True,         # v2.7.0：动画逐帧 JPEG 加速（视觉无损）
+        jpeg: bool = True,         # 动画逐帧 JPEG 加速（视觉无损）
         on_frame=None,
     ) -> tuple[list[Image.Image], list[float]]:
         """录制动画帧序列（GIF / MP4 用）。
@@ -503,12 +501,12 @@ class CaptureEngine:
         early_stop=True 时：有限动画全部停止且画面连续 stable_frames 次不变即
         提前结束；early_stop=False 时：录制满 max_wait 秒（帧数 = max_wait×fps，
         受 max_frames 上限约束）。
-        v2.6.0 自适应节奏：当单帧截图耗时大于 1/fps 间隔时不再 sleep 等待
-        （cycle = ct，最大化采样率），减少帧重复让动画更流畅。v2.6.0 截屏走
-        CDP Page.captureScreenshot（失败回退），约快 25%。
-        v2.7.0：逐帧默认走 CDP JPEG 直采（质量 95 视觉无损）——JPEG 编码/解码
-        远快于 PNG，整页采样率提升数倍，动画更流畅。返回的 times 为真实采集时刻，
-        供控制器按实际节奏计算播放时长（保证播放速度 = 真实时间，不再用帧重复拖慢）。
+        自适应节奏：当单帧截图耗时大于 1/fps 间隔时不再 sleep 等待
+        （最大化采样率），减少帧重复让动画更流畅。截屏走 CDP
+        Page.captureScreenshot（失败回退），比默认通道快约 25%。
+        逐帧默认走 CDP JPEG 直采（质量 95 视觉无损）——JPEG 编码/解码远快于
+        PNG，整页采样率提升数倍，动画更流畅。返回的 times 为真实采集时刻，
+        供控制器按实际节奏计算播放时长（保证播放速度 = 真实时间，不用帧重复拖慢）。
         full_page=True 时逐帧捕获整页。
         """
         fps_i = max(1, int(fps))
@@ -520,7 +518,7 @@ class CaptureEngine:
         prev = self._fast_hash(frames[0])
         stable = 0
         deadline = time.monotonic() + max_wait
-        next_t = time.monotonic()  # v2.6.0：自适应节奏
+        next_t = time.monotonic()  # 自适应节奏基准
         while time.monotonic() < deadline:
             next_t += interval
             wait = next_t - time.monotonic()
@@ -552,9 +550,9 @@ class CaptureEngine:
         max_wait: float = ANIMATION_MAX_WAIT,
         stable_frames: int = ANIMATION_STABLE_FRAMES,
         on_frame=None,
-        scroll_limit: int | None = None,   # v2.2.0：高度锁定时限制录制范围
+        scroll_limit: int | None = None,   # 高度锁定时限制录制范围
     ) -> tuple[list[Image.Image], list[float]]:
-        """滚动逐帧录制整页（GIF / MP4 用，v2.0.0 需求 6）。
+        """滚动逐帧录制整页（GIF / MP4 用）。
 
         从头到尾缓慢滚动视口，自然触发 reveal-on-scroll 入场动画（元素进入
         视口才播放），并覆盖页面全部内容，解决「只录到顶部标题、下方是背景
@@ -611,7 +609,7 @@ class CaptureEngine:
         return frames, times
 
     def collect_resource_warnings(self) -> list[str]:
-        """收集外链资源加载失败的提醒（设计文档 13：支持外链但失败需提醒）。"""
+        """收集外链资源加载失败的提醒（支持外链但失败需提醒用户）。"""
         failed = self.page.evaluate(
             """() => {
                 const out = [];

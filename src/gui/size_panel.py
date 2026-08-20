@@ -1,6 +1,6 @@
-"""尺寸设置面板（v1.2.0 简化版）。
+"""尺寸设置面板。
 
-v1.2.0 起尺寸语义修正：用户在面板中只设置"宽度"（浏览器视口宽度），
+尺寸语义：用户在面板中只设置"宽度"（浏览器视口宽度），
 导出时高度跟随网页实际内容长度（PNG / PDF / GIF 均适用）。
 面板提供 2400 / 1440 / 1080 / 800 预设，并可输入任意自定义宽度。
 """
@@ -35,7 +35,7 @@ from config.presets import (
 
 class SizePanel(QWidget):
     widthChanged = Signal(int)
-    # v2.0.0：在线网站预览 / 浏览器打开
+    # 在线网站预览 / 浏览器打开
     onlinePreview = Signal(str)
     onlineBrowser = Signal(str)
 
@@ -67,7 +67,7 @@ class SizePanel(QWidget):
         row.addWidget(self.unit)
         form.addRow("宽度", row)
 
-        # ---- v2.1.0：分辨率倍率（原生渲染放大，非超分）
+        # ---- 分辨率倍率（原生渲染放大，非超分）
         scale_row = QHBoxLayout()
         self.scale_combo = QComboBox()
         for s in SCALE_PRESETS:
@@ -79,7 +79,7 @@ class SizePanel(QWidget):
         scale_row.addWidget(self.scale_combo, 1)
         form.addRow("分辨率倍率", scale_row)
 
-        # ---- v2.2.0：高度锁定（默认不启用；启用后内容高度锁定为该值，超出不导出）
+        # ---- 高度锁定（默认不启用；启用后内容高度锁定为该值，超出不导出）
         height_row = QHBoxLayout()
         self.height_chk = QCheckBox("启用高度限制")
         self.height_chk.setChecked(False)
@@ -103,7 +103,7 @@ class SizePanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(group)
 
-        # ---- v2.0.0：导出在线网站（URL 源）----
+        # ---- 导出在线网站（URL 源）----
         online_group = QGroupBox("在线网站", self)
         og = QVBoxLayout(online_group)
         og.setSpacing(6)
@@ -136,11 +136,11 @@ class SizePanel(QWidget):
     def set_width(self, width: int) -> None:
         self.width_combo.setCurrentText(str(int(width)))
 
-    # v2.1.0：分辨率倍率
+    # 分辨率倍率
     def get_scale(self) -> int:
         return int(self.scale_combo.currentData())
 
-    # v2.2.0：高度锁定（0 = 不限制）
+    # 高度锁定（0 = 不限制）
     def get_height_limit(self) -> int:
         if not self.height_chk.isChecked():
             return 0
@@ -153,7 +153,7 @@ class SizePanel(QWidget):
         else:
             self.height_chk.setChecked(False)
 
-    # v2.0.0：在线网站
+    # 在线网站
     def get_online_url(self) -> str:
         return self.online_url.text().strip()
 

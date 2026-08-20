@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""WPI PyInstaller spec：单文件 + windowed + 定向瘦身（v1.5.0）。
+"""WPI PyInstaller spec：单文件 + windowed + 定向瘦身。
 
 PySide6 hook 通过 collect_all 会把全部 100+ 个 Qt DLL 打入包内，
 --exclude-module 无法拦截 DLL。此 spec 在 Analysis 之后按过滤规则
@@ -17,17 +17,17 @@ ROOT = os.path.dirname(SPECPATH)
 SRC_DIR = os.path.join(ROOT, "src")
 DEMO_DIR = os.path.join(ROOT, "examples", "demo")
 ASSETS_DIR = os.path.join(ROOT, "assets")
-ICON_ICO = os.path.join(ASSETS_DIR, "WPI_256.ico")   # EXE 图标（v1.7.0：多尺寸 ICO 全家桶）
+ICON_ICO = os.path.join(ASSETS_DIR, "WPI_256.ico")   # EXE 图标（多尺寸 ICO 全家桶）
 ICON_PNG = os.path.join(ASSETS_DIR, "WPI.png")
 
-# v1.7.0：全部尺寸图标一并打入包内，运行时按 DPI 选择最合适的一枚
+# 全部尺寸图标一并打入包内，运行时按 DPI 选择最合适的一枚
 _ICON_SIZES = ("32", "48", "64", "128", "256")
 _ICON_DATAS = [(os.path.join(ASSETS_DIR, "WPI.png"), "assets")]
 _ICON_DATAS += [
     (os.path.join(ASSETS_DIR, f"WPI_{s}.ico"), "assets") for s in _ICON_SIZES
 ]
 
-# v2.0.0：下拉箭头 PNG 资源（src/gui/assets → 包内 gui/assets，供 QSS image:url() 引用）
+# 下拉箭头 PNG 资源（src/gui/assets → 包内 gui/assets，供 QSS image:url() 引用）
 _GUI_ASSETS_DIR = os.path.join(SRC_DIR, "gui", "assets")
 _ICON_DATAS += [(_GUI_ASSETS_DIR, "gui/assets")]
 

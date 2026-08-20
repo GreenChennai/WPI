@@ -1,8 +1,8 @@
-"""MP4 导出：把整页逐帧序列用 FFmpeg 编码为 H.264 **高保真** MP4（v2.3.0）。
+"""MP4 导出：把整页逐帧序列用 FFmpeg 编码为 H.264 **高保真** MP4。
 
 帧序列由 CaptureEngine.capture_frames(full_page=True) 提供（与 GIF 同源）。
-v2.7.0：逐帧采样默认走 CDP JPEG（质量 95，视觉无损）以换取更高采样率（动画更
-流畅），故称"高保真"而非位级无损；H.264 编码仍为 x264 crf 0 + yuv444p。
+逐帧采样默认走 CDP JPEG（质量 95，视觉无损）以换取更高采样率（动画更流畅），
+故称"高保真"而非位级无损；H.264 编码仍为 x264 crf 0 + yuv444p。
 FFmpeg 发现顺序同 GIFExporter：WPI_FFMPEG 环境变量 → 软件同目录 → PATH。
 """
 
@@ -28,7 +28,7 @@ class MP4Exporter:
 
     def write(self, frames: list[Image.Image], path: str, fps: float = 30,
               use_ffmpeg: bool = True) -> dict:
-        """把帧序列编码为 H.264 **高保真** MP4（v2.3.0，v2.7.0 起帧源走 JPEG 加速采样）。
+        """把帧序列编码为 H.264 **高保真** MP4（帧源走 JPEG 加速采样）。
 
         libx264 `-crf 0` + `-pix_fmt yuv444p` 为无损编码（High 4:4:4），
         帧像素零损失、体积较大属正常；帧源为 CDP JPEG（质量 95，视觉无损），

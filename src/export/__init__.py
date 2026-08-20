@@ -1,1 +1,1 @@
-"""export 包：PNG/GIF/PDF 导出器按需导入（v1.5.0 去除通配符）。"""
+"""export 包：PNG/GIF/PDF 导出器按需导入。"""

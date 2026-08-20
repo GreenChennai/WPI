@@ -14,7 +14,7 @@ def _suppress_child_consoles() -> None:
 
     PyInstaller `--windowed` 仅隐藏主进程自身的控制台；由本进程派生的
     node/ffmpeg 等子进程默认仍会闪出黑窗。为 Popen 补上 CREATE_NO_WINDOW，
-    让 capture_output 等流水线调用也保持静默（v1.4.0）。
+    让 capture_output 等流水线调用也保持静默。
     """
     if os.name != "nt" or not getattr(sys, "frozen", False):
         return
@@ -36,7 +36,7 @@ def _suppress_child_consoles() -> None:
 
 
 def _build_app_icon():
-    """v1.7.0：组装多尺寸 QIcon（32/48/64/128/256 + PNG 兜底），
+    """组装多尺寸 QIcon（32/48/64/128/256 + PNG 兜底），
     让窗口 / 任务栏 / 通知区在不同 DPI 下都使用最合适的一枚。"""
     from PySide6.QtGui import QIcon, QPixmap
 
@@ -53,7 +53,7 @@ def _build_app_icon():
 
 
 def _attach_parent_console() -> None:
-    """windowed 冻结态下把输出接到父控制台，让 CLI 模式输出可见（v2.0.0）。
+    """windowed 冻结态下把输出接到父控制台，让 CLI 模式输出可见。
 
     PyInstaller `--windowed` 的进程没有控制台；通过 --export 从命令行调用时，
     挂到父进程（cmd/PowerShell）的控制台上以打印进度与结果。
@@ -73,7 +73,7 @@ def _attach_parent_console() -> None:
 def _cmd_export(args: argparse.Namespace) -> int:
     from core.controller import ExportParams, run_export_sync
 
-    _attach_parent_console()  # v2.0.0：无 GUI 导出时控制台输出可见
+    _attach_parent_console()  # 无 GUI 导出时控制台输出可见
     fmt = (args.format or "PNG").upper()
     if fmt not in ("PNG", "GIF", "MP4", "PDF"):
         print(f"不支持的格式: {fmt}", file=sys.stderr)
@@ -240,7 +240,7 @@ def main() -> int:
         app.setFont(QFont("Microsoft YaHei UI", 10))
     app.setStyleSheet(build_stylesheet())
 
-    # v2.0.0：单实例锁 —— 软件只允许打开一个实例
+    # 单实例锁：软件只允许打开一个实例
     from PySide6.QtCore import QLockFile, QStandardPaths
 
     _lock_path = os.path.join(

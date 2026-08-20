@@ -1,4 +1,4 @@
-"""PNG 导出：Pillow 写出，支持透明背景选项（设计文档 4.5）。"""
+"""PNG 导出：Pillow 写出，支持透明背景选项。"""
 
 from __future__ import annotations
 

@@ -1,15 +1,11 @@
 """交互式预览窗口：独立弹出 QMainWindow + QWebEngineView。
 
-与主窗口分离（设计需求 4），可滚动 / 点击 / 交互（设计需求 2），
-内置本地静态服务，按需打开、关闭即释放（设计需求 1：无需整套 Playwright 渲染链路）。
+与主窗口分离，可滚动 / 点击 / 交互，内置本地静态服务，
+按需打开、关闭即释放（无需整套 Playwright 渲染链路）。
 
-v1.3.0：预览窗口根据导出设置中的视口宽度呈现页面
-（内容区宽度 = 导出宽度，窗口带外框所以实际尺寸更大）。
-
-v1.8.0：
-- 窗口高度固定为 850（不再随内容自动撑高）；
-- 窗口宽度按用户设定的网页宽度精确贴合（加载后测量并校正，使内容区
-  恰好等于设定宽度，左右无多余灰边）；
+设计要点：
+- 窗口高度固定（不随内容自动撑高），窗口宽度按用户设定的网页宽度精确贴合
+  （加载后测量并校正，使内容区恰好等于设定宽度，左右无多余灰边）；
 - 去掉 QScrollArea，直接以 QWebEngineView 作为内容，页面自身滚动条负责
   内容滚动，避免额外外框与宽度误算。
 """
@@ -32,7 +28,7 @@ from core.static_server import resolve_index, shared_server
 
 
 class PreviewWindow(QMainWindow):
-    PREVIEW_HEIGHT = 850  # 固定窗口高度（v1.8.0）
+    PREVIEW_HEIGHT = 850  # 固定窗口高度
 
     def __init__(self, parent=None, width: int | None = None):
         super().__init__(parent)
@@ -95,9 +91,9 @@ class PreviewWindow(QMainWindow):
         # 首次显示后也校正一次宽度（loadFinished 之前也能贴合）
         QTimer.singleShot(60, self._fit_window_width)
 
-    # ----------------------------------------------------- 宽度精确贴合（v1.8.0）
+    # ----------------------------------------------------- 宽度精确贴合
     def _on_load_finished(self, _ok: bool) -> None:
-        # 仅校正窗口宽度，绝不改动高度（高度已固定 850）
+        # 仅校正窗口宽度，绝不改动高度（高度已固定）
         self._fit_window_width()
 
     def _fit_window_width(self) -> None:
@@ -118,10 +114,10 @@ class PreviewWindow(QMainWindow):
     def load(self, source: str, url_override: str | None = None) -> None:
         """加载本地源（HTML 文件或目录）或在线 URL。
 
-        v2.1.0：本地源统一挂载到进程内唯一的共享静态服务（单端口），
-        切换项目时调用 mount() 切换挂载目录，不再为每个预览开新端口。
-        v2.2.0：URL 追加唯一 query（?wpi=<ms>），保证切换项目时即使入口同名
-        （都是 /index.html）也会触发重新加载，而不是命中旧页缓存。
+        本地源统一挂载到进程内唯一的共享静态服务（单端口），切换项目时调用
+        mount() 切换挂载目录，不再为每个预览开新端口。
+        URL 追加唯一 query（?wpi=<ms>），保证切换项目时即使入口同名（都是
+        /index.html）也会触发重新加载，而不是命中旧页缓存。
         """
         if url_override:
             url = url_override
@@ -143,5 +139,5 @@ class PreviewWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self._view.setPage(None)
-        # 共享静态服务由主窗口统一在退出时停止（v2.1.0）
+        # 共享静态服务由主窗口统一在退出时停止
         super().closeEvent(event)

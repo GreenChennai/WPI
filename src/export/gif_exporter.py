@@ -1,4 +1,4 @@
-"""GIF 导出：优先 FFmpeg 调色板优化，无 FFmpeg 时回退 Pillow（设计文档 5.3 / 13 定项）。
+"""GIF 导出：优先 FFmpeg 调色板优化，无 FFmpeg 时回退 Pillow。
 
 FFmpeg 发现顺序：WPI_FFMPEG 环境变量 → 软件同目录 → PATH。
 """
@@ -70,7 +70,7 @@ class GIFExporter:
         duration_ms = round(1000 / max(1, int(fps)))
         if durations:
             # 按实际采集间隔设置每帧时长，保证 GIF 播放速度贴近真实时间
-            #（v2.7.0：上限 1000ms、下限 20ms=2 百分秒，播放器兼容）
+            #（上限 1000ms、下限 20ms=2 百分秒，播放器兼容）
             duration_ms = [max(20, min(1000, d)) for d in durations]
         imgs = [f.convert("P", palette=Image.ADAPTIVE, colors=256) for f in frames]
         imgs[0].save(
@@ -93,7 +93,7 @@ class GIFExporter:
                 bg.save(os.path.join(td, f"frame_{i:05d}.png"))
             cmd = [
                 find_ffmpeg(), "-y", "-loglevel", "error",
-                "-framerate", str(round(float(fps), 3)),  # v2.7.0：支持小数实际帧率
+                "-framerate", str(round(float(fps), 3)),  # 支持小数实际帧率
                 "-i", os.path.join(td, "frame_%05d.png"),
                 "-filter_complex",
                 "[0:v]split[x][y];[x]palettegen=stats_mode=diff[p];"
@@ -108,7 +108,7 @@ class GIFExporter:
 
 
 def _hide_console_flags() -> int:
-    """Windows 下禁止子进程弹出 CMD 控制台窗口（v1.4.0）。"""
+    """Windows 下禁止子进程弹出 CMD 控制台窗口。"""
     if os.name == "nt":
         return getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return 0

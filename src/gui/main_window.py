@@ -42,7 +42,7 @@ class MainWindow(QMainWindow):
 
         self._loading: QWidget | None = None
         self._loaded = False
-        self._settings = Settings()   # v1.4.0：启动即加载/创建设置文件
+        self._settings = Settings()   # 启动即加载/创建设置文件
         self._build_shell()
         self._start_boot()
 
@@ -139,7 +139,7 @@ class MainWindow(QMainWindow):
         self.export_panel = ExportPanel(right)
         right_layout.addWidget(self.size_panel)
         right_layout.addWidget(self.export_panel)
-        # v2.0.0：在线网站预览 / 浏览器打开
+        # 在线网站预览 / 浏览器打开
         self.size_panel.onlinePreview.connect(self._open_preview_online)
         self.size_panel.onlineBrowser.connect(self._open_browser_online)
 
@@ -176,12 +176,12 @@ class MainWindow(QMainWindow):
         right_layout.addStretch(1)
 
         splitter.addWidget(right)
-        splitter.setStretchFactor(0, 5)  # v1.4.0：工作目录占更宽，支持 4 列卡片
+        splitter.setStretchFactor(0, 5)  # 工作目录占更宽，支持 4 列卡片
         splitter.setStretchFactor(1, 2)
         splitter.setSizes([860, 460])
         root.addWidget(splitter, 1)
 
-        # ---- v1.4.0：设置记忆（任何变更即写回软件同级目录的 WPI_settings.json）
+        # ---- 设置记忆（任何变更即写回软件同级目录的 WPI_settings.json）
         self.workspace.workdirChanged.connect(self._on_workdir_changed)
         self.size_panel.widthChanged.connect(self._on_width_changed)
         self.export_panel.outputChanged.connect(self._on_output_changed)
@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------- workspace ops
     def _scan_initial_project(self) -> None:
-        """v1.4.0：从设置文件恢复上次工作目录 / 宽度 / 输出路径。"""
+        """从设置文件恢复上次工作目录 / 宽度 / 输出路径。"""
         from config.presets import default_workspace_dir
 
         settings = self._settings
@@ -204,7 +204,7 @@ class MainWindow(QMainWindow):
         if settings.output_path:
             self.export_panel.set_output_path(settings.output_path)
 
-    # ------------------------------------------------ v1.4.0 设置记忆 handlers
+    # ------------------------------------------------ 设置记忆 handlers
     def _on_workdir_changed(self, path: str) -> None:
         self._settings.workspace_dir = path
 
@@ -217,7 +217,7 @@ class MainWindow(QMainWindow):
     def _on_project_selected(self, project: str) -> None:
         self._active_project = project
         self.status_label.setText(f"当前项目：{os.path.basename(project)}")
-        # v1.7.0：多 HTML 时输出建议名取所选页面（如 index2 → index2.png）
+        # 多 HTML 时输出建议名取所选页面（如 index2 → index2.png）
         source = self._selected_source(project)
         if os.path.isfile(source):
             stem = os.path.splitext(os.path.basename(source))[0]
@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
         else:
             self.export_panel.set_output_suggestion(os.path.dirname(project), os.path.basename(project))
 
-    # v1.9.0：多选集合变化 → 动态按钮标签 + 多选禁用预览
+    # 多选集合变化 → 动态按钮标签 + 多选禁用预览
     def _on_selection_changed(self, projects: list) -> None:
         n = len(projects)
         self.preview_btn.setEnabled(n <= 1)  # 多选时「预览当前项目」不可用
@@ -251,7 +251,7 @@ class MainWindow(QMainWindow):
         self._open_preview_for(project)
 
     def _selected_source(self, project: str) -> str:
-        """v1.7.0：项目内多 HTML 时取卡片下拉框选中的入口；否则回退到项目目录。"""
+        """项目内多 HTML 时取卡片下拉框选中的入口；否则回退到项目目录。"""
         path = self.workspace.selected_html_path(project)
         return path or project
 
@@ -260,8 +260,7 @@ class MainWindow(QMainWindow):
 
         width = self.size_panel.get_width()
         source = self._selected_source(project)
-        # v2.2.0：预览窗口已打开时复用同一窗口并重新加载新项目（此前直接 raise
-        # 返回导致切换项目仍显示旧页面）。
+        # 预览窗口已打开时复用同一窗口并重新加载新项目（否则切换项目仍显示旧页面）
         if self._preview_win is not None and self._preview_win.isVisible():
             win = self._preview_win
             win.load(source)
@@ -285,7 +284,7 @@ class MainWindow(QMainWindow):
     def _open_in_browser(self, project: str) -> None:
         """用系统默认浏览器打开项目（可 F12 审查元素）。
 
-        v2.1.0：挂载到进程内唯一的共享静态服务（单端口），切换项目即切换目录。
+        挂载到进程内唯一的共享静态服务（单端口），切换项目即切换目录。
         """
         from core.static_server import resolve_index, shared_server
 
@@ -303,18 +302,18 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             QMessageBox.critical(self, "打开失败", str(exc))
             return
-        # v2.2.0：URL 追加唯一 query，避免不同项目同名入口（/index.html）命中缓存
+        # URL 追加唯一 query，避免不同项目同名入口（/index.html）命中缓存
         import time as _time
 
         url = f"{srv.base_url}/{rel}?wpi={int(_time.time() * 1000)}"
         threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
         self.status_label.setText(f"已在系统浏览器打开：{url}")
 
-    # ------------------------------------------------ v2.0.0 在线网站（URL）
+    # ------------------------------------------------ 在线网站（URL）
     def _open_preview_online(self, url: str) -> None:
         from gui.preview_window import PreviewWindow  # 延迟导入，加速启动
 
-        # v2.2.0：复用可见窗口并重新加载新 URL
+        # 复用可见窗口并重新加载新 URL
         if self._preview_win is not None and self._preview_win.isVisible():
             win = self._preview_win
             win.load("", url_override=url)
@@ -347,8 +346,8 @@ class MainWindow(QMainWindow):
             source=source,
             format=extra["format"],
             width=width,
-            scale=self.size_panel.get_scale(),   # v2.1.0：分辨率倍率
-            height=self.size_panel.get_height_limit(),  # v2.2.0：高度锁定（0=不限制）
+            scale=self.size_panel.get_scale(),   # 分辨率倍率
+            height=self.size_panel.get_height_limit(),  # 高度锁定（0=不限制）
             fps=extra["fps"],
             loop=extra["loop"],
             transparent=extra["transparent"],
@@ -357,7 +356,7 @@ class MainWindow(QMainWindow):
         )
 
     def _run_export(self) -> None:
-        # v2.0.0：填写了在线网站地址时，优先导出该在线网站（URL 源）
+        # 填写了在线网站地址时，优先导出该在线网站（URL 源）
         online_url = self.size_panel.get_online_url()
         if online_url:
             if self._thread is not None and self._thread.isRunning():
@@ -373,7 +372,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # v1.9.0：导出当前多选集合（普通点击=单选；Ctrl/Shift 多选=批量）
+        # 导出当前多选集合（普通点击=单选；Ctrl/Shift 多选=批量）
         entries = self.workspace.export_entries()
         if not entries:
             QMessageBox.warning(
@@ -412,7 +411,7 @@ class MainWindow(QMainWindow):
         self._start_export_worker(params_list, label, "准备导出…")
 
     def _start_export_worker(self, params_list: list, label: str, status_text: str) -> None:
-        """统一启动导出工作线程（本地 / 在线 / 批量共用，v2.0.0 提取）。"""
+        """统一启动导出工作线程（本地 / 在线 / 批量共用）。"""
         self.progress.setValue(0)
         self.status_label.setText(status_text)
         self.export_btn.setText(label)
@@ -437,7 +436,7 @@ class MainWindow(QMainWindow):
             results = result.get("results", [])
             n = len(results)
             if n == 1:
-                # v2.0.0：单选也走批量通道，按单文件提示「导出完成」而非「批量导出完成」
+                # 单选也走批量通道，按单文件提示「导出完成」而非「批量导出完成」
                 r = results[0]
                 msgs = [
                     f"导出完成: {os.path.basename(r['path'])}\n"
@@ -488,14 +487,14 @@ class MainWindow(QMainWindow):
         self.export_btn.setEnabled(True)
         self.preview_btn.setEnabled(True)
         self._thread = None
-        # 依据当前多选状态刷新按钮标签 / 预览可用性（v1.9.0）
+        # 依据当前多选状态刷新按钮标签 / 预览可用性
         self._on_selection_changed(self.workspace.selected_projects())
 
     def closeEvent(self, event) -> None:
         if self._preview_win is not None:
             self._preview_win.close()
             self._preview_win = None
-        # v2.1.0：唯一共享静态服务在退出时统一停止
+        # 唯一共享静态服务在退出时统一停止
         try:
             from core.static_server import shared_server
 

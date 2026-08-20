@@ -22,7 +22,7 @@ class _QuietHandler(SimpleHTTPRequestHandler):
 
 
 class _SharedHandler(SimpleHTTPRequestHandler):
-    """共享服务处理器（v2.1.0）。
+    """共享服务处理器。
 
     每个请求到达时会新建一个处理器实例；从 SharedServer 快照当前挂载目录
     并作为 `directory` 传给基类（必须在 super().__init__ 之前取好——基类的
@@ -40,7 +40,7 @@ class _SharedHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=directory, **kwargs)
 
     def end_headers(self):
-        # v2.2.0：禁止缓存，切换挂载目录后浏览器必须重新请求资源，
+        # 禁止缓存：切换挂载目录后浏览器必须重新请求资源，
         # 避免切换项目时仍显示上一个项目的旧 CSS/JS/页面
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Pragma", "no-cache")
@@ -66,7 +66,7 @@ def list_html_files(directory: str) -> list[str]:
 def resolve_index(directory: str) -> str | None:
     """返回目录内优先使用的入口文件名（相对路径），找不到返回 None。
 
-    v1.7.0：优先 index.html / index.htm，否则取排序后的第一个 HTML。
+    优先 index.html / index.htm，否则取排序后的第一个 HTML。
     """
     names = set(list_html_files(directory))
     if not names:
@@ -115,7 +115,7 @@ class StaticServer:
 
 
 class SharedServer:
-    """全局唯一静态服务（v2.1.0）：进程内只占一个端口。
+    """全局唯一静态服务：进程内只占一个端口。
 
     预览 / 「浏览器打开」都挂载到同一台服务上，通过 mount() 切换当前目录，
     不再为每个项目开新端口，避免端口占用过多。
@@ -158,7 +158,7 @@ _shared_instance: SharedServer | None = None
 
 
 def shared_server() -> SharedServer:
-    """返回进程内唯一的共享静态服务单例（v2.1.0）。"""
+    """返回进程内唯一的共享静态服务单例。"""
     global _shared_instance
     if _shared_instance is None:
         _shared_instance = SharedServer()

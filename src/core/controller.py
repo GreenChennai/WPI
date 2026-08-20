@@ -18,8 +18,8 @@ class ExportParams:
     source: str                     # HTML 文件路径 / 目录 / http(s):// URL
     format: str = "PNG"             # PNG / GIF / MP4 / PDF
     width: int = 1080
-    scale: int = 1                  # v2.1.0：分辨率倍率（原生渲染，X1/X2/X4/X8）
-    height: int = 0                 # v2.2.0：高度锁定（0=不限制；>0 内容高度锁定，超出不导出）
+    scale: int = 1                  # 分辨率倍率（原生渲染，X1/X2/X4/X8）
+    height: int = 0                 # 高度锁定（0=不限制；>0 内容高度锁定，超出不导出）
     fps: int = 15
     loop: int = 0
     transparent: bool = False
@@ -31,9 +31,9 @@ class ExportParams:
 
 
 def playback_durations(times: list[float], fps: int) -> tuple[list[int], float]:
-    """v2.7.0：按实际采集时刻计算每帧播放时长(ms)与实际播放帧率。
+    """按实际采集时刻计算每帧播放时长(ms)与实际播放帧率。
 
-    目标：GIF / MP4 播放速度恒等于真实时间，绝不用帧重复把动画拖慢。
+    核心目标：GIF / MP4 播放速度恒等于真实时间，绝不用帧重复把动画拖慢。
 
     - 采集节奏达到目标帧率（平均采集间隔 ≤ 目标间隔×1.05，允许轻微抖动）时：
       按目标帧率均匀播放，返回每帧 1000/fps 毫秒。
@@ -116,7 +116,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             ("http://", "https://")
         )
         if is_url:
-            # v2.0.0：在线网站直接以 URL 加载，无需本地静态服务
+            # 在线网站直接以 URL 加载，无需本地静态服务
             url = params.source
             _status("连接在线网站…")
         else:
@@ -139,17 +139,17 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         warnings.extend(engine.collect_resource_warnings())
         _progress(40)
 
-        # v1.8.0：导出前确保内容已完整呈现（字体 / 图片加载 + 动画收敛到终态），
+        # 导出前确保内容已完整呈现（字体 / 图片加载 + 动画收敛到终态），
         # 避免截到未渲染的纯色块。GIF/MP4 需录制动画过程：等资源 + 滚动触发
         # reveal 内容展开（不冻结动画）；PNG/PDF 则 settle 收敛到终态。
         if params.format in ("GIF", "MP4"):
             engine.wait_assets()
-            engine.trigger_scroll_reveals()   # v2.3.0：整页可见，reveal 内容已展开
+            engine.trigger_scroll_reveals()   # 整页可见，reveal 内容已展开
         else:
             engine.settle()
         _progress(45)
 
-        # v2.2.0：高度锁定 —— 视口高度设为锁定值（浏览器窗口能呈现的最高高度），
+        # 高度锁定：视口高度设为锁定值（浏览器窗口能呈现的最高高度），
         # 内容不压缩，超出部分不导出
         if params.height and params.height > 0:
             _status("设置锁定高度视口…")
@@ -168,11 +168,10 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
         }
 
         if params.format == "GIF":
-            # v2.3.0：与 PNG 尺寸语义一致——只限制宽度，高度为网页自然内容高度
-            #（整页逐帧）；高度锁定时只录制顶部锁定区域。
-            # v2.4.0：early_stop=False 录满 max_wait 时长（真实时间采样）。
-            # v2.7.0：移除"按帧率×时长补帧"——逐帧 JPEG 加速采样后，按真实采集
-            # 节奏计算每帧延迟，播放速度恒等于真实时间，不再用重复帧把动画拖慢。
+            # 与 PNG 尺寸语义一致——只限制宽度，高度为网页自然内容高度（整页逐帧）；
+            # 高度锁定时只录制顶部锁定区域。
+            # 录满 max_wait 时长（真实时间采样），按真实采集节奏计算每帧延迟，
+            # 播放速度恒等于真实时间，不用重复帧把动画拖慢。
             _status("录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
@@ -204,11 +203,10 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             _progress(98)
 
         elif params.format == "MP4":
-            # v2.3.0：与 GIF 共用整页逐帧录制，FFmpeg 高保真编码（x264 crf0）。
-            # v2.5.0：重采样到目标帧数 = fps×时长后按设定帧率编码。
-            # v2.7.0：逐帧 JPEG 加速采样 + 按真实采样节奏编码——采样率达不到设定
-            # 帧率时按实际帧率编码（播放速度 = 真实时间，不再拖慢）；达到时按设定
-            # 帧率编码（帧数足、时长正确）。
+            # 与 GIF 共用整页逐帧录制，FFmpeg 高保真编码（x264 crf0）。
+            # 逐帧 JPEG 加速采样 + 按真实采样节奏编码——采样率达不到设定帧率时
+            # 按实际帧率编码（播放速度 = 真实时间，不拖慢）；达到时按设定帧率
+            # 编码（帧数足、时长正确）。
             _status("录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
@@ -217,7 +215,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             frames, times = engine.capture_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
-                early_stop=False,          # v2.4.0：录满 max_wait 时长
+                early_stop=False,          # 录满 max_wait 时长
                 full_page=not (params.height > 0),
                 on_frame=_on_frame,
             )
@@ -239,10 +237,10 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             _progress(98)
 
         elif params.format == "PNG":
-            # v1.8.0：导出前已 settle（等待资源加载 + 动画收敛到终态），
+            # 导出前已 settle（等待资源加载 + 动画收敛到终态），
             # 此处直接截取完整呈现后的页面当前状态。
             if params.height and params.height > 0:
-                # v2.2.0：高度锁定 —— 只导出顶部锁定高度范围内的内容
+                # 高度锁定：只导出顶部锁定高度范围内的内容
                 _status("按锁定高度导出…")
                 image = engine.capture_highres(
                     height_css=int(params.height),
@@ -255,9 +253,9 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             elif params.full_page:
                 _status("测量并导出整页内容…")
                 actual_w, _actual_h = engine.prepare_full_page(params.width, None)
-                # v2.2.0：4X/8X 高倍率下 captureBeyondViewport 单拍受 Chromium
-                # 最大截图尺寸限制会截断组件 → 改分块滚动截图 + 拼接；
-                # v2.4.0：capture_highres 内部对未超上限的页面仍单拍优先
+                # 高倍率（4X/8X）下 captureBeyondViewport 单拍受 Chromium 最大
+                # 截图尺寸限制会截断组件 → 改分块滚动截图 + 拼接；capture_highres
+                # 内部对未超上限的页面仍单拍优先
                 if params.scale > 2:
                     image = engine.capture_highres(
                         transparent=params.transparent, scale=params.scale
@@ -279,10 +277,10 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             _progress(98)
 
         elif params.format == "PDF":
-            # v1.8.0：导出前已 settle，此处直接打印完整呈现后的页面当前状态。
+            # 导出前已 settle，此处直接打印完整呈现后的页面当前状态。
             out_w, out_h = params.width, params.width
             if params.height and params.height > 0:
-                # v2.2.0：高度锁定 —— 打印高度锁定为该值
+                # 高度锁定：打印高度锁定为该值
                 out_h = int(params.height)
                 result["width"] = out_w
                 result["height"] = out_h
@@ -313,7 +311,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
 
 
 def _unique_path(path: str) -> str:
-    """目标文件已存在时追加 _1/_2... 数字后缀，避免覆盖同名文件（v2.0.0）。"""
+    """目标文件已存在时追加 _1/_2... 数字后缀，避免覆盖同名文件。"""
     if not os.path.exists(path):
         return path
     base, ext = os.path.splitext(path)
@@ -330,10 +328,10 @@ def run_batch_sync(
     progress=None,
     status=None,
 ) -> dict:
-    """批量导出：依次导出 params_list 中的每一项（v1.9.0 多选批量导出）。
+    """批量导出：依次导出 params_list 中的每一项。
 
     任一文件失败即停止并向上抛出（遇错停止、成功继续，由调用方回报）。
-    重名文件自动追加数字后缀，不覆盖（v2.0.0）。
+    重名文件自动追加数字后缀，不覆盖。
     返回 {"batch": True, "results": [...], "count": N}。
     """
     total = len(params_list)

@@ -9,9 +9,9 @@ from . import tokens as T
 
 
 def _arrow_path(name: str) -> str:
-    """返回下拉箭头 PNG 资源的绝对路径（QSS image:url() 对绝对路径可靠，
-    对 base64 data URI 不可靠，故改用真实文件，v2.0.0 重做 v1.8.0 的修复）。
+    """返回下拉箭头 PNG 资源的绝对路径。
 
+    QSS image:url() 对绝对路径可靠、对 base64 data URI 不可靠，故用真实文件。
     开发模式取 src/gui/assets；PyInstaller 单文件模式取打包内的 gui/assets。
     """
     if getattr(sys, "frozen", False):
@@ -151,7 +151,7 @@ QPushButton#cardSecondary {{
 }}
 QPushButton#cardSecondary:hover {{ background: {T.SURFACE_HOVER}; }}
 
-/* v1.7.0：项目卡片内入口 HTML 下拉框（紧凑样式） */
+/* 项目卡片内入口 HTML 下拉框（紧凑样式） */
 QComboBox#cardEntry {{
     background: {T.WHITE};
     border: 1px solid {T.INPUT_BORDER};
@@ -185,7 +185,7 @@ QComboBox#cardEntry QAbstractItemView {{
     color: {T.TEXT_TITLE};
 }}
 
-/* v2.2.0：空工作目录提示（字号加大，仍居中） */
+/* 空工作目录提示（字号加大，仍居中） */
 QLabel#emptyTitle {{
     font-size: 17px;
     font-weight: 600;
@@ -209,7 +209,7 @@ QProgressBar {{
     border-radius: 4px;
     height: 16px;
     text-align: center;
-    color: #000000;  /* v1.4.0：百分比文字黑色，保证清晰 */
+    color: #000000;  /* 百分比文字黑色，保证清晰 */
     font-size: 11px;
     font-weight: 600;
 }}

@@ -35,7 +35,7 @@ from config.presets import (
 
 class ExportPanel(QWidget):
     paramsChanged = Signal()
-    outputChanged = Signal(str)  # v1.4.0：输出路径变更（供设置记忆）
+    outputChanged = Signal(str)  # 输出路径变更（供设置记忆）
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -64,15 +64,15 @@ class ExportPanel(QWidget):
         gform = QFormLayout(self.gif_group)
 
         self.fps_combo = QComboBox()
-        # v2.6.0：严格限制 4 个整数延迟帧速；
-        # v2.7.0：GIF / MP4 分档（GIF=10/20/25/50，MP4=24/30/48/60），随格式切换
+        # 帧率严格限制为延迟恒为整数的档位（GIF 用 10/20/25/50，MP4 用 24/30/48/60），
+        # 避免 GIF 非整数百分秒延迟 BUG；随导出格式自动切换
         for f in GIF_FPS_PRESETS:
             self.fps_combo.addItem(f"{f} fps", f)
         self.fps_combo.setCurrentText(f"{GIF_FPS} fps")
         self.fps_combo.currentIndexChanged.connect(self._changed)
         gform.addRow("帧率", self.fps_combo)
 
-        # v2.2.0：循环控件垂直左对齐——上「无限循环」勾选，下次数输入；
+        # 循环控件垂直左对齐——上「无限循环」勾选，下次数输入；
         # 只有取消勾选时才显示次数输入窗口（默认勾选 = 无限循环）
         self.loop_widget = QWidget(self)
         lw = QVBoxLayout(self.loop_widget)
@@ -90,7 +90,7 @@ class ExportPanel(QWidget):
         self.loop_spin = QSpinBox()
         self.loop_spin.setRange(1, 1000)
         self.loop_spin.setValue(1)
-        self.loop_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # v2.0.0：去掉 +/- 步进按钮
+        self.loop_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # 去掉 +/- 步进按钮
         self.loop_spin.valueChanged.connect(self._changed)
         lsr.addWidget(self.loop_spin)
         lsr.addStretch(1)
@@ -104,7 +104,7 @@ class ExportPanel(QWidget):
         self.maxwait_spin.setRange(1, 120)
         self.maxwait_spin.setValue(15)
         self.maxwait_spin.setSuffix(" 秒")
-        self.maxwait_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # v2.0.0
+        self.maxwait_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # 去步进按钮
         self.maxwait_spin.setToolTip("动画最长录制/等待时间")
         self.maxwait_spin.valueChanged.connect(self._changed)
         gform.addRow("动画时长上限", self.maxwait_spin)
@@ -164,7 +164,7 @@ class ExportPanel(QWidget):
         self.output_edit.setText(os.path.join(base_dir, name + ext))
 
     def set_output_path(self, path: str) -> None:
-        """外部设置输出路径（设置记忆回填等，v1.4.0）。"""
+        """外部设置输出路径（设置记忆回填等）。"""
         if path and not path.lower().endswith(FILE_EXTENSIONS[self.format_combo.currentText()]):
             root, _ext = os.path.splitext(path)
             path = root + FILE_EXTENSIONS[self.format_combo.currentText()]
@@ -189,7 +189,7 @@ class ExportPanel(QWidget):
         self._changed()
 
     def _rebuild_fps(self, fmt: str) -> None:
-        """v2.7.0：帧率预设随格式切换——GIF 用 10/20/25/50，MP4 用 24/30/48/60。
+        """帧率预设随格式切换——GIF 用 10/20/25/50，MP4 用 24/30/48/60。
 
         切回当前格式时尽量保留已选帧率，仅在不在新预设内时回退到该格式默认值。
         """
@@ -209,7 +209,7 @@ class ExportPanel(QWidget):
         self.fps_combo.blockSignals(False)
 
     def _on_loop_toggled(self, checked: bool) -> None:
-        # v2.2.0：取消勾选「无限循环」时才显示次数输入窗口
+        # 取消勾选「无限循环」时才显示次数输入窗口
         self.loop_spin_row.setVisible(not checked)
         self.loop_spin.setEnabled(not checked)
         self._changed()
