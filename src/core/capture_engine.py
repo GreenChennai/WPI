@@ -18,12 +18,12 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 from config.presets import (
+    ANIMATION_CAPTURE_JPEG_QUALITY,
     ANIMATION_INFINITE_WAIT,
     ANIMATION_MAX_WAIT,
     ANIMATION_SAMPLE_INTERVAL,
     ANIMATION_STABLE_FRAMES,
     ASSET_WAIT,
-    GIF_MAX_FRAMES,
 )
 
 if TYPE_CHECKING:
@@ -112,13 +112,19 @@ class CaptureEngine:
             self._cdp = None
         return self._cdp
 
-    def _screenshot_cdp(self, full_page: bool = False) -> bytes | None:
-        """v2.6.0：CDP Page.captureScreenshot 直连（约快 25%），失败回退。"""
+    def _screenshot_cdp(self, full_page: bool = False, jpeg: bool = False) -> bytes | None:
+        """v2.6.0：CDP Page.captureScreenshot 直连（约快 25%），失败回退。
+
+        v2.7.0：动画逐帧采集走 `format=jpeg`（质量 95 视觉无损）——JPEG 编码/解码
+        远快于 PNG，整页采样率可提升数倍，动画更流畅；静帧仍用 PNG 无损通道。
+        """
         import base64
         session = self._cdp_session()
         if session is None:
             return None
-        params = {"format": "png", "captureBeyondViewport": True}
+        params: dict = {"format": "jpeg", "captureBeyondViewport": bool(full_page)}
+        if jpeg:
+            params["quality"] = ANIMATION_CAPTURE_JPEG_QUALITY
         if full_page:
             try:
                 sw, sh = self.content_size()
@@ -472,9 +478,10 @@ class CaptureEngine:
             finite, _infinite = self.animation_running_counts()
         return False
 
-    def _shot(self, full_page: bool):
-        """v2.6.0：截取一帧，优先 CDP（更约 25% 快），失败回退 Playwright。"""
-        data = self._screenshot_cdp(full_page=full_page)
+    def _shot(self, full_page: bool, jpeg: bool = False):
+        """v2.6.0：截取一帧，优先 CDP（更约 25% 快），失败回退 Playwright。
+        v2.7.0：动画逐帧采集默认 JPEG 加速，静帧仍走 PNG 无损。"""
+        data = self._screenshot_cdp(full_page=full_page, jpeg=jpeg)
         if data is not None:
             return Image.open(io.BytesIO(data)).convert("RGB")
         return self.capture_final_frame(full_page=full_page)
@@ -487,6 +494,7 @@ class CaptureEngine:
         stable_frames: int = ANIMATION_STABLE_FRAMES,
         early_stop: bool = True,   # v2.4.0：False 时录满 max_wait 时长
         full_page: bool = False,
+        jpeg: bool = True,         # v2.7.0：动画逐帧 JPEG 加速（视觉无损）
         on_frame=None,
     ) -> tuple[list[Image.Image], list[float]]:
         """录制动画帧序列（GIF / MP4 用）。
@@ -498,13 +506,16 @@ class CaptureEngine:
         v2.6.0 自适应节奏：当单帧截图耗时大于 1/fps 间隔时不再 sleep 等待
         （cycle = ct，最大化采样率），减少帧重复让动画更流畅。v2.6.0 截屏走
         CDP Page.captureScreenshot（失败回退），约快 25%。
+        v2.7.0：逐帧默认走 CDP JPEG 直采（质量 95 视觉无损）——JPEG 编码/解码
+        远快于 PNG，整页采样率提升数倍，动画更流畅。返回的 times 为真实采集时刻，
+        供控制器按实际节奏计算播放时长（保证播放速度 = 真实时间，不再用帧重复拖慢）。
         full_page=True 时逐帧捕获整页。
         """
         fps_i = max(1, int(fps))
         interval = 1.0 / fps_i
         if max_frames is None:
             max_frames = int(max_wait * fps_i) + 2
-        frames: list[Image.Image] = [self._shot(full_page)]
+        frames: list[Image.Image] = [self._shot(full_page, jpeg)]
         times: list[float] = [time.monotonic()]
         prev = self._fast_hash(frames[0])
         stable = 0
@@ -516,7 +527,7 @@ class CaptureEngine:
             if wait > 0:
                 time.sleep(wait)
             # 若已超时（sleep 期间或截图慢导致超时）则不再等，直接采下一帧
-            frame = self._shot(full_page)
+            frame = self._shot(full_page, jpeg)
             frames.append(frame)
             times.append(time.monotonic())
             if on_frame is not None:

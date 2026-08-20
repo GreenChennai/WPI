@@ -28,6 +28,8 @@ from config.presets import (
     GIF_FPS,
     GIF_FPS_PRESETS,
     GIF_LOOP,
+    MP4_FPS,
+    MP4_FPS_PRESETS,
 )
 
 
@@ -62,7 +64,9 @@ class ExportPanel(QWidget):
         gform = QFormLayout(self.gif_group)
 
         self.fps_combo = QComboBox()
-        for f in GIF_FPS_PRESETS:                    # v2.6.0：严格限制 4 个整数延迟帧速
+        # v2.6.0：严格限制 4 个整数延迟帧速；
+        # v2.7.0：GIF / MP4 分档（GIF=10/20/25/50，MP4=24/30/48/60），随格式切换
+        for f in GIF_FPS_PRESETS:
             self.fps_combo.addItem(f"{f} fps", f)
         self.fps_combo.setCurrentText(f"{GIF_FPS} fps")
         self.fps_combo.currentIndexChanged.connect(self._changed)
@@ -177,11 +181,32 @@ class ExportPanel(QWidget):
         self.loop_widget.setVisible(fmt == "GIF")
         self.png_group.setVisible(fmt == "PNG")
         self.pdf_group.setVisible(fmt == "PDF")
+        self._rebuild_fps(fmt)
         if self.output_edit.text().strip():
             path = self.output_edit.text().strip()
             root, _ext = os.path.splitext(path)
             self.output_edit.setText(root + FILE_EXTENSIONS[fmt])
         self._changed()
+
+    def _rebuild_fps(self, fmt: str) -> None:
+        """v2.7.0：帧率预设随格式切换——GIF 用 10/20/25/50，MP4 用 24/30/48/60。
+
+        切回当前格式时尽量保留已选帧率，仅在不在新预设内时回退到该格式默认值。
+        """
+        if fmt == "MP4":
+            presets, default = MP4_FPS_PRESETS, MP4_FPS
+        else:
+            presets, default = GIF_FPS_PRESETS, GIF_FPS
+        self.fps_combo.blockSignals(True)
+        cur = self.fps_combo.currentData()
+        self.fps_combo.clear()
+        for f in presets:
+            self.fps_combo.addItem(f"{f} fps", f)
+        if cur not in presets:
+            cur = default
+        idx = self.fps_combo.findData(cur)
+        self.fps_combo.setCurrentIndex(max(0, idx))
+        self.fps_combo.blockSignals(False)
 
     def _on_loop_toggled(self, checked: bool) -> None:
         # v2.2.0：取消勾选「无限循环」时才显示次数输入窗口

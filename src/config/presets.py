@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "2.6.0"
+VERSION = "2.7.0"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
@@ -38,11 +38,23 @@ FILE_EXTENSIONS = {"PNG": ".png", "GIF": ".gif", "MP4": ".mp4", "PDF": ".pdf"}
 
 # v2.0.0：GIF / MP4 共用的帧率预设与上限
 # v2.6.0：限制为 GIF 延迟时间（100/FPS 百分秒）为整数的 4 个值，避免非整数延迟 BUG
+# v2.7.0：GIF 与 MP4 分档——GIF 仍为 10/20/25/50（延迟恒为整数百分秒）；
+#         MP4 视频采用 24/30/48/60（视频编码帧率无整数延迟约束，按真实采样节奏编码）。
 GIF_FPS = 25
 GIF_FPS_PRESETS = (10, 20, 25, 50)
 GIF_FPS_RANGE = (10, 50)
+MP4_FPS = 30
+MP4_FPS_PRESETS = (24, 30, 48, 60)
+MP4_FPS_RANGE = (24, 60)
 GIF_LOOP = 0            # 0 = 无限循环（默认开关开启）
-GIF_MAX_FRAMES = 900    # v2.4.0：GIF 截取上限帧数（15s×60fps 满时长录制）
+GIF_MAX_FRAMES = 900    # v2.4.0：GIF 截取上限帧数（v2.7.0 起 GIF 最高 50fps → 15s×50=750 帧）
+
+# v2.7.0：动画帧捕获加速与实时播放保障
+# 中间动画帧走 CDP JPEG 直采（JPEG 编码/解码远快于 PNG，整页采样率可提升数倍），
+# 质量取 95 视觉无损；最终静帧（PNG/PDF）仍走 PNG 无损通道。
+ANIMATION_CAPTURE_JPEG_QUALITY = 95
+ANIMATION_FRAME_DURATION_MIN = 20    # ms，GIF 单帧延迟下限（2 百分秒，播放器兼容下限）
+ANIMATION_FRAME_DURATION_MAX = 1000  # ms，GIF 单帧延迟上限
 
 PNG_TRANSPARENT = False
 PDF_PAPER = "Fit"       # 或 "A4"

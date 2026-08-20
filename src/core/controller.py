@@ -30,21 +30,43 @@ class ExportParams:
     extra_warnings: list[str] = field(default_factory=list)
 
 
-def _resample_frames(frames: list, target: int) -> list:
-    """v2.5.0：把实时采集的帧序列重采样到目标帧数（均匀重复 / 抽取）。
+def playback_durations(times: list[float], fps: int) -> tuple[list[int], float]:
+    """v2.7.0：按实际采集时刻计算每帧播放时长(ms)与实际播放帧率。
 
-    目标帧数 = 帧率 × 时长（如 25fps × 15s = 375 帧）。整页截图耗时可能大于
-    1/fps 间隔，实际采集帧数不足时按比例重复补齐；反之按比例抽取。播放速度
-    保持真实时间（每个采集时刻的帧被均匀摊到对应数量的播放帧上）。
+    目标：GIF / MP4 播放速度恒等于真实时间，绝不用帧重复把动画拖慢。
+
+    - 采集节奏达到目标帧率（平均采集间隔 ≤ 目标间隔×1.05，允许轻微抖动）时：
+      按目标帧率均匀播放，返回每帧 1000/fps 毫秒。
+    - 采集节奏慢于目标帧率（整页截图耗时超过 1/fps，采样率上不去）时：
+      按真实采集间隔逐帧播放——每帧显示时长 = 它到下一帧的真实间隔（GIF 取整到
+      10ms=百分秒并限幅 20~1000ms），不再把少量采样帧重复撑到 fps×时长。
+
+    返回 (每帧时长ms列表, 实际播放帧率)。列表长度与 frames/times 一致。
     """
-    n = len(frames)
-    target = max(1, int(target))
-    if n <= 1 or n == target:
-        return frames
-    out = []
-    for i in range(target):
-        out.append(frames[min(n - 1, int(i * n / target))])
-    return out
+    from config.presets import (
+        ANIMATION_FRAME_DURATION_MAX,
+        ANIMATION_FRAME_DURATION_MIN,
+    )
+
+    target_fps = max(1, int(fps))
+    n = len(times)
+    if n <= 1:
+        d = round(1000.0 / target_fps)
+        return [d] * n, float(target_fps)
+    intervals = [times[i + 1] - times[i] for i in range(n - 1)]
+    avg = sum(intervals) / len(intervals)
+    target_iv = 1.0 / target_fps
+    if avg <= target_iv * 1.05:
+        d = max(ANIMATION_FRAME_DURATION_MIN, round(1000.0 / target_fps))
+        return [d] * n, float(target_fps)
+    last = intervals[-1] if intervals else avg
+    durs = []
+    for iv in intervals + [last]:
+        ms = int(round(iv * 1000.0 / 10.0) * 10)
+        ms = max(ANIMATION_FRAME_DURATION_MIN,
+                 min(ANIMATION_FRAME_DURATION_MAX, ms))
+        durs.append(ms)
+    return durs, round(1.0 / avg, 3)
 
 
 def build_url(source: str, server) -> str:
@@ -149,15 +171,14 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             # v2.3.0：与 PNG 尺寸语义一致——只限制宽度，高度为网页自然内容高度
             #（整页逐帧）；高度锁定时只录制顶部锁定区域。
             # v2.4.0：early_stop=False 录满 max_wait 时长（真实时间采样）。
-            # v2.5.0：按目标帧率重采样——GIF 总帧数 = fps×时长（25fps×15s=375 帧），
-            # 单帧延迟 = 100/fps 百分秒（25fps → 4cs = 40ms），播放时长与设定一致、
-            # 播放速度 = 真实时间（截图耗时大于 1/fps 时用帧重复补齐帧数）。
+            # v2.7.0：移除"按帧率×时长补帧"——逐帧 JPEG 加速采样后，按真实采集
+            # 节奏计算每帧延迟，播放速度恒等于真实时间，不再用重复帧把动画拖慢。
             _status("录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
                 _progress(min(85, 45 + n))
 
-            frames, _times = engine.capture_frames(
+            frames, times = engine.capture_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
                 max_frames=GIF_MAX_FRAMES,
@@ -165,17 +186,11 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
                 full_page=not (params.height > 0),
                 on_frame=_on_frame,
             )
-            target = min(
-                GIF_MAX_FRAMES,
-                max(2, int(params.fps * params.max_wait)),
-            )
-            frames = _resample_frames(frames, target)
-            duration_ms = max(1, int(round(1000.0 / max(1, int(params.fps)))))
-            durations = [duration_ms] * len(frames)
+            durations, play_fps = playback_durations(times, params.fps)
             _status("编码 GIF…")
             gif = GIFExporter().write(
                 frames, params.output_path,
-                fps=params.fps, loop=params.loop,
+                fps=play_fps, loop=params.loop,
                 durations=durations,
                 use_ffmpeg=params.use_ffmpeg,
             )
@@ -184,38 +199,43 @@ def run_export_sync(params: ExportParams, progress=None, status=None) -> dict:
             result["height"] = fh
             result["frames"] = gif["frames"]
             result["encoder"] = gif["encoder"]
-            result["duration_ms"] = len(frames) * duration_ms
+            result["play_fps"] = play_fps
+            result["duration_ms"] = sum(durations)
             _progress(98)
 
         elif params.format == "MP4":
-            # v2.3.0：与 GIF 共用整页逐帧录制，FFmpeg 无损编码（x264 crf0）。
-            # v2.5.0：重采样到目标帧数 = fps×时长（30fps×15s = 450 帧）后按设定
-            # 帧率编码 → 视频帧数足、时长正确、速度 = 真实时间。
+            # v2.3.0：与 GIF 共用整页逐帧录制，FFmpeg 高保真编码（x264 crf0）。
+            # v2.5.0：重采样到目标帧数 = fps×时长后按设定帧率编码。
+            # v2.7.0：逐帧 JPEG 加速采样 + 按真实采样节奏编码——采样率达不到设定
+            # 帧率时按实际帧率编码（播放速度 = 真实时间，不再拖慢）；达到时按设定
+            # 帧率编码（帧数足、时长正确）。
             _status("录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
                 _progress(min(85, 45 + n))
 
-            frames, _times = engine.capture_frames(
+            frames, times = engine.capture_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
                 early_stop=False,          # v2.4.0：录满 max_wait 时长
                 full_page=not (params.height > 0),
                 on_frame=_on_frame,
             )
-            target = max(2, int(params.fps * params.max_wait))
-            frames = _resample_frames(frames, target)
+            _durations, play_fps = playback_durations(times, params.fps)
             _status("编码 MP4…")
             mp4 = MP4Exporter().write(
                 frames, params.output_path,
-                fps=params.fps, use_ffmpeg=params.use_ffmpeg,
+                fps=play_fps, use_ffmpeg=params.use_ffmpeg,
             )
             fw, fh = frames[0].size
             result["width"] = fw
             result["height"] = fh
             result["frames"] = len(frames)
             result["encoder"] = mp4["encoder"]
-            result["duration_ms"] = int(len(frames) * 1000.0 / max(1, int(params.fps)))
+            result["play_fps"] = play_fps
+            result["duration_ms"] = int(
+                len(frames) * 1000.0 / max(play_fps, 1e-3)
+            )
             _progress(98)
 
         elif params.format == "PNG":

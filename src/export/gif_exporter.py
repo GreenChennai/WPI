@@ -67,10 +67,11 @@ class GIFExporter:
         loop: int,
         durations: list[int] | None = None,
     ) -> None:
-        duration_ms = int(round(1000 / max(1, fps)))
+        duration_ms = round(1000 / max(1, int(fps)))
         if durations:
             # 按实际采集间隔设置每帧时长，保证 GIF 播放速度贴近真实时间
-            duration_ms = [max(10, min(1000, d)) for d in durations]
+            #（v2.7.0：上限 1000ms、下限 20ms=2 百分秒，播放器兼容）
+            duration_ms = [max(20, min(1000, d)) for d in durations]
         imgs = [f.convert("P", palette=Image.ADAPTIVE, colors=256) for f in frames]
         imgs[0].save(
             path,
@@ -83,7 +84,7 @@ class GIFExporter:
         )
 
     @staticmethod
-    def _write_ffmpeg(frames: list[Image.Image], path: str, fps: int, loop: int) -> None:
+    def _write_ffmpeg(frames: list[Image.Image], path: str, fps: float, loop: int) -> None:
         with tempfile.TemporaryDirectory(prefix="wpi_gif_") as td:
             for i, frame in enumerate(frames, start=1):
                 rgba = frame.convert("RGBA")
@@ -92,7 +93,7 @@ class GIFExporter:
                 bg.save(os.path.join(td, f"frame_{i:05d}.png"))
             cmd = [
                 find_ffmpeg(), "-y", "-loglevel", "error",
-                "-framerate", str(max(1, int(fps))),
+                "-framerate", str(round(float(fps), 3)),  # v2.7.0：支持小数实际帧率
                 "-i", os.path.join(td, "frame_%05d.png"),
                 "-filter_complex",
                 "[0:v]split[x][y];[x]palettegen=stats_mode=diff[p];"

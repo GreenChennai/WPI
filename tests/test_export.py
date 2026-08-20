@@ -5,7 +5,7 @@ import os
 
 from PIL import Image
 
-from core.controller import ExportParams, build_url
+from core.controller import ExportParams, build_url, playback_durations
 
 
 class _FakeServer:
@@ -92,3 +92,47 @@ def test_unique_path_adds_suffix(tmp_path):
     open(p1, "w").close()
     p2 = _unique_path(target)
     assert p2.endswith("out_2.png")
+
+
+def test_playback_durations_meets_target_fps():
+    """采样节奏达到目标帧率 → 均匀按目标帧率播放（每帧 1000/fps ms）。"""
+    # 25fps → 目标间隔 40ms；采样间隔 40ms 均匀 10 帧
+    times = [0.0 + i * 0.04 for i in range(10)]
+    durs, play_fps = playback_durations(times, 25)
+    assert play_fps == 25.0
+    assert durs == [40] * 10
+    assert sum(durs) == 400  # 播放总时长 = 真实采集时长
+
+
+def test_playback_durations_slow_capture_uses_real_intervals():
+    """采样节奏慢于目标帧率（整页截图太慢）→ 按真实采集间隔逐帧播放，不再补帧拖慢。"""
+    # 目标 50fps，但实际每 0.5s 采一帧（整页截图慢）→ 3 帧跨 1s
+    times = [0.0, 0.5, 1.0]
+    durs, play_fps = playback_durations(times, 50)
+    assert play_fps == 2.0  # 实际帧率 = 1/0.5
+    assert durs == [500, 500, 500]  # 每帧显示真实 500ms
+    assert sum(durs) == 1500  # 播放总时长 = 真实采集时长 1s（末帧多持一个间隔）
+
+
+def test_playback_durations_rounds_to_centisecond():
+    """GIF 帧延迟取整到 10ms（百分秒）并限幅 20~1000ms。"""
+    times = [0.0, 0.133, 0.271, 0.402]  # 间隔 ~133/138/131ms
+    durs, play_fps = playback_durations(times, 50)
+    assert all(d % 10 == 0 for d in durs)
+    assert all(20 <= d <= 1000 for d in durs)
+    assert durs == [130, 140, 130, 130]
+    assert abs(play_fps - round(1 / ((0.133 + 0.138 + 0.131) / 3), 3)) < 0.01
+
+
+def test_playback_durations_single_frame():
+    durs, play_fps = playback_durations([0.0], 25)
+    assert durs == [40]
+    assert play_fps == 25.0
+
+
+def test_playback_durations_low_fps_under_one():
+    """采集间隔非常慢（整页超大）→ 实际帧率可为小数，帧延迟限幅到上限。"""
+    times = [0.0, 1.2, 2.3, 3.5]
+    durs, play_fps = playback_durations(times, 60)
+    assert play_fps < 1.5
+    assert all(d == 1000 for d in durs)  # 每帧延迟被限幅到 1000ms 上限
