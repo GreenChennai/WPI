@@ -116,6 +116,32 @@ QPushButton#ghostBtn {{
 }}
 QPushButton#ghostBtn:hover {{ background: {T.SURFACE_HOVER}; border-color: {T.BORDER_HOVER}; }}
 
+/* 「取消任务」红色危险按钮 */
+QPushButton#dangerBtn {{
+    background: {T.DANGER_STRONG};
+    color: #FFFFFF;
+    border: none;
+    border-radius: {T.RADIUS_MD}px;
+    padding: 6px 16px;
+    font-weight: 600;
+}}
+QPushButton#dangerBtn:hover {{ background: {T.DANGER_STRONG_HOVER}; }}
+QPushButton#dangerBtn:pressed {{ background: {T.DANGER_STRONG_PRESS}; }}
+QPushButton#dangerBtn:disabled {{ background: {T.SURFACE_PRESS}; color: {T.TEXT_PLACEHOLDER}; }}
+
+/* 「更换目录…」黄色按钮 */
+QPushButton#warningBtn {{
+    background: {T.WARNING};
+    color: #FFFFFF;
+    border: none;
+    border-radius: {T.RADIUS_MD}px;
+    padding: 6px 16px;
+    font-weight: 600;
+}}
+QPushButton#warningBtn:hover {{ background: {T.WARNING_HOVER}; }}
+QPushButton#warningBtn:pressed {{ background: {T.WARNING_PRESS}; }}
+QPushButton#warningBtn:disabled {{ background: {T.SURFACE_PRESS}; color: {T.TEXT_PLACEHOLDER}; }}
+
 /* ---------- 工作目录项目卡片（背景/边框由 paintEvent 自绘，QSS 只留透明） ---------- */
 #projectCard, #folderCard {{
     background: transparent;

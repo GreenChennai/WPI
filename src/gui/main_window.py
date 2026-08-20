@@ -144,9 +144,9 @@ class MainWindow(QMainWindow):
         self.size_panel.onlinePreview.connect(self._open_preview_online)
         self.size_panel.onlineBrowser.connect(self._open_browser_online)
 
-        # 更换目录按钮位于右侧设置栏下方（调用左侧工作目录的选择）
+        # 更换目录按钮位于右侧设置栏下方（调用左侧工作目录的选择，黄色）
         self.chdir_btn = QPushButton("更换目录…")
-        self.chdir_btn.setObjectName("ghostBtn")
+        self.chdir_btn.setObjectName("warningBtn")
         self.chdir_btn.setMinimumHeight(30)
         self.chdir_btn.clicked.connect(self.workspace.choose_directory)
         right_layout.addWidget(self.chdir_btn)
@@ -164,9 +164,9 @@ class MainWindow(QMainWindow):
         self.export_btn.clicked.connect(self._run_export)
         action_row.addWidget(self.export_btn, 1)
 
-        # 「取消任务」：导出进行中显示，一键中止当前任务（导出中按钮右侧）
+        # 「取消任务」：导出进行中显示，一键中止当前任务（导出中按钮右侧，红色）
         self.cancel_btn = QPushButton("取消任务")
-        self.cancel_btn.setObjectName("ghostBtn")
+        self.cancel_btn.setObjectName("dangerBtn")
         self.cancel_btn.setMinimumHeight(36)
         self.cancel_btn.setToolTip("一键取消当前正在进行的导出任务")
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
@@ -448,16 +448,19 @@ class MainWindow(QMainWindow):
         self._thread.start()
 
     def _on_cancel_clicked(self) -> None:
-        """点击「取消任务」：置取消标志，交给导出循环在各阶段检查后正常中止。"""
+        """点击「取消任务」：置取消标志并立即清空进度，交给导出循环正常中止。"""
         if self._cancel_event is None:
             return
         self._cancel_event.set()
+        self.progress.setValue(0)
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.setText("正在取消…")
         self.status_label.setText("正在取消当前任务…")
 
     def _on_export_cancelled(self) -> None:
         self._finish_busy()
+        # 取消后进度条归零，不再残留取消前的百分比
+        self.progress.setValue(0)
         QMessageBox.information(self, "已取消", "导出任务已取消。")
 
     def _on_export_done(self, result: dict) -> None:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "3.0.0"
+VERSION = "3.0.1"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
@@ -55,14 +55,19 @@ GIF_MAX_FRAMES = 900    # GIF 截取上限帧数（最高 50fps × 15s = 750 帧
 # 由用户点击「取消任务」主动停止
 BATCH_ITEM_TIMEOUT_SECONDS = 900
 
-# 静态导出（PNG/PDF）渲染节流：无头模式下 requestAnimationFrame 不锁 60fps，
-# 密集 rAF 画布动画会以数百 fps 占满渲染主线程，evaluate 续跑与 Playwright
-# 超时都会失效 → 导出卡死。节流到 ~4fps：装饰性循环动画几乎不耗 CPU，
-# 一次性绘制仍可完成，重交互页面也能正常收敛
-STATIC_RENDER_RAF_THROTTLE_MS = 250
+# 渲染 rAF 节流（所有导出格式统一）：无头模式下 requestAnimationFrame 不锁
+# 60fps，密集 rAF 画布动画会以数百 fps 占满渲染主线程，evaluate 续跑与
+# Playwright 超时都会失效 → 导出卡死。节流到 ~30fps：大幅降低主线程负载
+# 消除卡死，同时一次性 rAF 动效（墨滴扩散等逐帧动画）仍能在数秒内播完
+RENDER_RAF_THROTTLE_MS = 33
 
 # 滚动触发 reveal 遍历的步数上限：超长页面只滚前 N 步，避免遍历自身耗时过长
 SCROLL_REVEAL_MAX_STEPS = 40
+
+# 静态导出（PNG/PDF）settle 的画面稳定等待预算（秒）：打字机、墨滴扩散等
+# JS 驱动的一次性动效 getAnimations() 看不到，只能靠「连续多帧整页像素不变」
+# 兜底等待它们播完再截取；有无限 CSS 动画在跑时画面无法稳定，不进入该等待
+ANIMATION_SETTLE_MAX_WAIT = 6.0
 
 # 动画帧捕获加速：中间动画帧走 CDP JPEG 直采（JPEG 编码/解码远快于 PNG，
 # 整页采样率可提升数倍），质量取 95 视觉无损；最终静帧（PNG/PDF）仍走 PNG 无损通道。

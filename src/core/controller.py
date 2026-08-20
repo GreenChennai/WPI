@@ -169,9 +169,9 @@ def run_export_sync(params: ExportParams, progress=None, status=None, cancel_eve
         # reveal 内容展开（不冻结动画）；PNG/PDF 则 settle 收敛到终态。
         if params.format in ("GIF", "MP4"):
             engine.wait_assets()
-            engine.trigger_scroll_reveals()   # 整页可见，reveal 内容已展开
+            engine.trigger_scroll_reveals(cancel_event=cancel_event)
         else:
-            engine.settle()
+            engine.settle(cancel_event=cancel_event)
         _progress(45)
         _check_cancel(cancel_event)
 

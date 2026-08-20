@@ -22,10 +22,11 @@ from config.presets import (
     ANIMATION_INFINITE_WAIT,
     ANIMATION_MAX_WAIT,
     ANIMATION_SAMPLE_INTERVAL,
+    ANIMATION_SETTLE_MAX_WAIT,
     ANIMATION_STABLE_FRAMES,
     ASSET_WAIT,
+    RENDER_RAF_THROTTLE_MS,
     SCROLL_REVEAL_MAX_STEPS,
-    STATIC_RENDER_RAF_THROTTLE_MS,
 )
 
 if TYPE_CHECKING:
@@ -34,20 +35,20 @@ if TYPE_CHECKING:
     from .browser_host import BrowserHost
 
 
-# 静态导出（PNG/PDF）页面加载前的注入脚本：把 requestAnimationFrame 节流到
-# 低帧率。无头模式下 rAF 不锁 60fps，密集 rAF 画布动画（数百 fps）会占满渲染
-# 主线程——`page.evaluate` 中 await 的续跑和 Playwright 自带超时都建立在页面
-# 主线程能调度任务之上，主线程被占满时两者同时失效，导出会卡死在固定百分比
-# 无法前进（如 PNG 的 40%）。静态导出只需要终态画面，节流后装饰性循环动画
-# 几乎不耗 CPU，一次性绘制仍能完成，重交互页面得以正常收敛。
-_STATIC_RENDER_INIT_JS = """(() => {
+# 页面加载前注入的 rAF 节流脚本（所有导出格式）。无头模式下 rAF 不锁 60fps，
+# 密集 rAF 画布动画（数百 fps）会占满渲染主线程——`page.evaluate` 中 await 的
+# 续跑和 Playwright 自带超时都建立在页面主线程能调度任务之上，主线程被占满时
+# 两者同时失效，导出会卡死在固定百分比无法前进（如 PNG 的 40%）。节流到
+# ~30fps 后主线程压力骤降不再卡死，同时逐帧动效（墨滴扩散 / 粒子）仍能在
+# 数秒内播完，静态与动画导出共用此机制。
+_RENDER_THROTTLE_JS = """(() => {
     if (window.__wpiRafThrottled) return;
     window.__wpiRafThrottled = true;
     const INTERVAL = %d;
     window.requestAnimationFrame = (cb) =>
         setTimeout(() => cb(performance.now()), INTERVAL);
     window.cancelAnimationFrame = (id) => clearTimeout(id);
-})();""" % STATIC_RENDER_RAF_THROTTLE_MS
+})();""" % RENDER_RAF_THROTTLE_MS
 
 
 class CaptureEngine:
@@ -66,17 +67,19 @@ class CaptureEngine:
         viewport: tuple[int, int],
         load_timeout_ms: int = 30000,
         device_scale: int = 1,   # 分辨率倍率（原生渲染，非超分）
-        static: bool = False,    # 静态导出（PNG/PDF）：节流 rAF + 模拟减少动效
+        static: bool = False,    # 静态导出（PNG/PDF）：额外模拟减少动效
     ) -> CaptureEngine:
         context, page = browser.new_page(viewport, device_scale_factor=device_scale)
+        # 所有格式统一节流 rAF（消除无头模式密集动画占满主线程导致的卡死），
+        # 需在页面脚本执行前注入。
+        try:
+            page.add_init_script(_RENDER_THROTTLE_JS)
+        except Exception:
+            pass
         if static:
-            # 必须在页面脚本执行前注入：节流 rAF 消除密集动画对主线程的占用，
-            # 模拟 prefers-reduced-motion 让页面自身的"最小动效"降级生效。
-            # 动态格式（GIF/MP4）不注入，需要完整动画。
-            try:
-                page.add_init_script(_STATIC_RENDER_INIT_JS)
-            except Exception:
-                pass
+            # 模拟 prefers-reduced-motion 让页面自身的「最小动效」降级生效：
+            # 无限 CSS 动画收敛为瞬时完成，密集 rAF 画布动画被页面侧关停，
+            # 静态截图取到的是作者为静态读者准备的完整呈现。
             try:
                 page.emulate_media(media="screen", reduced_motion="reduce")
             except Exception:
@@ -428,7 +431,9 @@ class CaptureEngine:
             )
         )
 
-    def trigger_scroll_reveals(self, step_ms: int = 130) -> None:
+    def trigger_scroll_reveals(
+        self, step_ms: int = 130, cancel_event=None
+    ) -> None:
         """滚动遍历整页以触发滚动入场动画（IntersectionObserver / 滚动监听的
         reveal-on-scroll），结束后回到顶部。
 
@@ -437,38 +442,49 @@ class CaptureEngine:
         初始态（透明 / 下移），截到的是未展开内容。此处主动滚动一遍把它们
         「激活」到终态。任何异常都不抛出，退化为直接截图。
 
-        防卡死加固：页面自身 `scroll-behavior: smooth` 会让每次 scrollTo 走
-        平滑动画，与密集 rAF 画布动画叠加时主线程被占满、evaluate 的 await
-        续跑被饿死（超时也失效）→ 先强制瞬时滚动；超长页面限步数兜底。
+        由 Python 侧驱动（同步 scrollTo + sleep）而非页面侧 async 循环：
+        重交互页面的主线程被密集 rAF 占满时，页面侧 `await` 的续跑会被饿死
+        （Playwright 超时也失效）导致 evaluate 永不返回、导出卡死；同步
+        scrollTo 每次只是「注入-执行-返回」，配合 rAF 节流可稳定完成。
+        先强制瞬时滚动（页面自身 scroll-behavior:smooth 是卡死放大器），
+        超长页面限步数兜底。
         """
-        js = (
-            """async () => {
-                try {
-                    document.documentElement.style.scrollBehavior = 'auto';
-                    const vh = window.innerHeight || 600;
-                    const step = Math.max(150, Math.floor(vh * 0.85));
-                    const total = Math.max(
-                        document.documentElement.scrollHeight,
-                        document.body ? document.body.scrollHeight : 0) || 0;
-                    const MAX_STEPS = %d;
-                    let y = 0;
-                    for (let n = 0; n < MAX_STEPS && y <= total; n++, y += step) {
-                        window.scrollTo(0, y);
-                        await new Promise(r => setTimeout(r, %d));
-                    }
-                    window.scrollTo(0, 0);
-                    await new Promise(r => setTimeout(r, 130));
-                } catch (e) {}
-                return true;
-            }"""
-            % (SCROLL_REVEAL_MAX_STEPS, step_ms)
-        )
         try:
-            self.page.evaluate(js)
+            try:
+                self.page.evaluate(
+                    "() => {"
+                    " document.documentElement.style.scrollBehavior='auto';"
+                    " return true; }"
+                )
+            except Exception:
+                pass
+            vh = int(self.page.evaluate("() => window.innerHeight || 600"))
+            step = max(150, int(vh * 0.85))
+            total = self.content_height()
+            steps = 0
+            for y in range(0, total + 1, step):
+                self._raise_if_cancelled(cancel_event)
+                try:
+                    self.page.evaluate("(y) => window.scrollTo(0, y)", y)
+                except Exception:
+                    pass
+                time.sleep(step_ms / 1000.0)
+                steps += 1
+                if steps >= SCROLL_REVEAL_MAX_STEPS:
+                    break
+            try:
+                self.page.evaluate("() => window.scrollTo(0, 0)")
+            except Exception:
+                pass
+            time.sleep(0.13)
         except Exception:
             pass
 
-    def settle(self, infinite_wait: float = ANIMATION_INFINITE_WAIT) -> dict:
+    def settle(
+        self,
+        infinite_wait: float = ANIMATION_INFINITE_WAIT,
+        cancel_event=None,
+    ) -> dict:
         """导出前让页面完整呈现：字体/图片加载 + 滚动触发动画展开 + 有限动画
         收敛到终态 + 无限动画等待固定时长后截取。
 
@@ -476,18 +492,60 @@ class CaptureEngine:
         """
         self.wait_assets()
         # 先滚动一遍触发 reveal-on-scroll 入场动画
-        self.trigger_scroll_reveals()
+        self.trigger_scroll_reveals(cancel_event=cancel_event)
         inf = self.freeze_animations()
         if inf > 0:
             # 无限循环动画无法 finish：按需求等待其「完全展开」再截取
             self.page.wait_for_timeout(int(infinite_wait * 1000))
             # 等待期间可能新触发有限入场动画，再次滚动 + 冻结
-            self.trigger_scroll_reveals()
+            self.trigger_scroll_reveals(cancel_event=cancel_event)
             self.freeze_animations()
+            # 仍有无限动画在跑，画面无法稳定，再等固定时长让 JS 驱动的一次性
+            # 动效（打字机 / 墨滴扩散等）播完
+            self.page.wait_for_timeout(int(infinite_wait * 1000))
         else:
-            # 已无动画在跑，给渲染线程一点时间消化终态布局
-            self.page.wait_for_timeout(300)
+            # 已无 CSS 动画在跑：等画面进入稳定（打字机、墨滴等 JS 动效
+            # getAnimations() 看不到，只能靠像素不变判定播完）
+            self.wait_visual_stability(cancel_event=cancel_event)
         return {"infinite": inf}
+
+    def wait_visual_stability(
+        self,
+        max_wait: float = ANIMATION_SETTLE_MAX_WAIT,
+        sample_interval: float = ANIMATION_SAMPLE_INTERVAL,
+        stable_frames: int = ANIMATION_STABLE_FRAMES,
+        min_wait: float = 0.4,
+        cancel_event=None,
+    ) -> bool:
+        """等待整页画面进入稳定（JS 驱动的一次性动效播完）。
+
+        getAnimations() 只能看到 CSS / Web Animations；打字机、墨滴扩散等由
+        setTimeout / rAF 驱动的动效看不到，只能靠「连续多帧整页像素不变」判断。
+        无限循环动画存在时不要调用本方法（画面永远无法稳定会烧满预算）。
+        返回 True=已稳定，False=达到预算强制通过。
+        """
+        time.sleep(min_wait)
+        try:
+            prev = self._fast_hash(self._shot(full_page=True, jpeg=True))
+        except Exception:
+            return False
+        stable = 0
+        deadline = time.monotonic() + max_wait
+        while time.monotonic() < deadline:
+            self._raise_if_cancelled(cancel_event)
+            time.sleep(sample_interval)
+            try:
+                cur = self._fast_hash(self._shot(full_page=True, jpeg=True))
+            except Exception:
+                return False
+            if cur == prev:
+                stable += 1
+                if stable >= stable_frames:
+                    return True
+            else:
+                stable = 0
+            prev = cur
+        return False
 
 
     # ---------------------------------------------------------------- capture
