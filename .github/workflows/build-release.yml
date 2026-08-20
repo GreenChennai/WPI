@@ -1,0 +1,77 @@
+name: build-release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUTF8: "1"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install PySide6 playwright Pillow pyinstaller
+
+      - name: Download ffmpeg (gyan.dev essentials)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:RUNNER_TEMP/ffmpeg.zip"
+          Expand-Archive "$env:RUNNER_TEMP/ffmpeg.zip" "$env:RUNNER_TEMP/ffmpeg"
+          $exe = Get-ChildItem "$env:RUNNER_TEMP/ffmpeg" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          if (-not $exe) { throw "ffmpeg.exe not found in gyan.dev archive" }
+          New-Item -ItemType Directory -Force -Path "tools" | Out-Null
+          Copy-Item $exe.FullName "tools/ffmpeg.exe"
+          Write-Host "ffmpeg bundled: $((Get-Item tools/ffmpeg.exe).Length) bytes"
+
+      - name: Build onefile exe + offline smoke
+        shell: pwsh
+        run: |
+          python tools/build.py --out dist_wpi
+
+      - name: Determine version
+        shell: pwsh
+        run: |
+          $ver = "2.8.0-" + (git rev-parse --short=7 HEAD)
+          $buildDir = (Get-ChildItem "dist_wpi" -Directory | Select-Object -First 1).FullName
+          "VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
+          "BUILD_DIR=$buildDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
+          Write-Host "version=$ver buildDir=$buildDir"
+
+      - name: Package zip (exe + ffmpeg + docs)
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP/WPI-$env:VERSION.zip"
+          Get-ChildItem $env:BUILD_DIR | Compress-Archive -DestinationPath $zip
+          Write-Host "zip: $zip ($((Get-Item $zip).Length) bytes)"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "WPI-${{ env.VERSION }}"
+          name: "WPI ${{ env.VERSION }}"
+          body: |
+            WPI v2.8.0 自动构建产物（推送到 main 触发）。
+
+            内含：单文件程序 WPI.exe、附随 ffmpeg.exe、README、VERSION.txt。
+          files: |
+            ${{ env.BUILD_DIR }}/WPI.exe
+            ${{ env.RUNNER_TEMP }}/WPI-${{ env.VERSION }}.zip
+          fail_on_unmatched_assets: true
