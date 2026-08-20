@@ -57,6 +57,7 @@ class CaptureEngine:
         self.page = page
         self.width = width
         self.height = height
+        self.device_scale: int = 1   # 渲染倍率（由 load() 传入）
 
     # ------------------------------------------------------------------ load
     @classmethod
@@ -90,7 +91,9 @@ class CaptureEngine:
         except Exception:
             pass  # 网络长期不 idle 时以 load 事件为准
         page.wait_for_timeout(200)
-        return cls(browser, page, viewport[0], viewport[1])
+        engine = cls(browser, page, viewport[0], viewport[1])
+        engine.device_scale = device_scale
+        return engine
 
     # --------------------------------------------------------------- helpers
     @staticmethod
@@ -750,6 +753,145 @@ class CaptureEngine:
             self.page.evaluate("() => window.scrollTo(0, 0)")
         except Exception:
             pass
+        return frames, times
+
+    # ----------------------------------------------- 整页动画（视口外 canvas 合成）
+    def _canvas_snapshots(self) -> list[dict]:
+        """读取视口外 <canvas> 的实时位图（页面坐标，设备像素）。
+
+        返回 [{x, y, w, h(设备像素), opacity, data(base64 PNG)}]。所有 canvas 在
+        同一次 evaluate 里读取——天然同步到同一动画时刻。视口内 canvas 由
+        Chromium 合成器实时刷新（整页单拍即为最新光栅）故跳过；带 transform /
+        非 normal 混合模式的 canvas 无法用平面粘贴还原，跳过（保留整页截图里
+        的原始区域）。读取失败（如 WebGL 未保留绘制缓冲）时该 canvas 被跳过。
+        """
+        try:
+            return self.page.evaluate(
+                """() => {
+                    const dpr = window.devicePixelRatio || 1;
+                    const vh = window.innerHeight || 600;
+                    const out = [];
+                    for (const c of document.querySelectorAll('canvas')) {
+                        const cs = getComputedStyle(c);
+                        const r = c.getBoundingClientRect();
+                        if (r.width <= 0 || r.height <= 0) continue;
+                        if (r.top >= 0 && r.bottom <= vh) continue;
+                        if (cs.transform && cs.transform !== 'none') continue;
+                        if (cs.mixBlendMode && cs.mixBlendMode !== 'normal') continue;
+                        let data = null;
+                        try { data = c.toDataURL('image/png'); } catch (e) { data = null; }
+                        if (!data) continue;
+                        const bl = parseFloat(cs.borderLeftWidth) || 0;
+                        const bt = parseFloat(cs.borderTopWidth) || 0;
+                        const pl = parseFloat(cs.paddingLeft) || 0;
+                        const pt = parseFloat(cs.paddingTop) || 0;
+                        out.push({
+                            x: Math.round((r.left + window.scrollX + bl + pl) * dpr),
+                            y: Math.round((r.top + window.scrollY + bt + pt) * dpr),
+                            w: Math.round((r.width - bl - pl) * dpr),
+                            h: Math.round((r.height - bt - pt) * dpr),
+                            opacity: parseFloat(cs.opacity || '1'),
+                            data: data,
+                        });
+                    }
+                    return out;
+                }"""
+            ) or []
+        except Exception:
+            return []
+
+    def _compose_canvases(self, bg: Image.Image, snaps: list[dict]) -> Image.Image:
+        """把视口外 canvas 的实时位图按页面坐标合成到整页图上。
+
+        只改动 canvas 区域（其余像素与整页截图逐字节一致），canvas 自身带
+        透明通道时按 alpha 粘贴，CSS opacity < 1 时按透明度合成。
+        """
+        if not snaps:
+            return bg
+        import base64
+        frame = bg.convert("RGBA")
+        for s in snaps:
+            data = s.get("data")
+            if not data:
+                continue
+            try:
+                raw = base64.b64decode(data.split(",", 1)[1])
+                img = Image.open(io.BytesIO(raw)).convert("RGBA")
+            except Exception:
+                continue
+            w, h = int(s["w"]), int(s["h"])
+            if img.size != (w, h):
+                img = img.resize((w, h), Image.LANCZOS)
+            opacity = float(s.get("opacity") or 1.0)
+            if opacity < 1.0:
+                a = img.split()[3].point(lambda v: int(v * opacity))
+                img.putalpha(a)
+                frame.alpha_composite(img, (int(s["x"]), int(s["y"])))
+            else:
+                frame.paste(img, (int(s["x"]), int(s["y"])), img)
+        return frame.convert("RGB")
+
+    def _composited_shot(self) -> Image.Image:
+        """一帧整页画面：先读视口外 canvas 实时位图，再整页截图，合成。"""
+        snaps = self._canvas_snapshots()
+        bg = self._shot(full_page=True, jpeg=True)
+        return self._compose_canvases(bg, snaps)
+
+    def capture_full_page_frames(
+        self,
+        fps: int,
+        max_wait: float = ANIMATION_MAX_WAIT,
+        max_frames: int | None = None,
+        stable_frames: int = ANIMATION_STABLE_FRAMES,
+        on_frame=None,
+        cancel_event=None,
+    ) -> tuple[list[Image.Image], list[float]]:
+        """整页动画帧录制（GIF / MP4 用）——整页同时动画，无需滚动。
+
+        整页单拍（captureBeyondViewport）对视口外的 2D canvas 动画取到的是
+        陈旧光栅（Chromium 合成器只刷新视口内 canvas 纹理，整页单拍得到冻结/
+        欠渲染帧，表现为 GIF 里噪波墨流消失、动画一闪一闪）。此处每帧先从页面
+        读取视口外 canvas 的实时位图（canvas.toDataURL，同一次 evaluate 天然
+        同步），再整页截图，把实时位图合成到整页图上：整页所有内容同时呈现、
+        所有 canvas 动画流畅且相互同步。页面 rAF 全程节流（防密集动画占满主线程
+        卡死），canvas 动画以 ~30fps 播放，逐帧采样即得流畅整页动画。
+
+        与 capture_frames 相同的自适应节奏：单帧耗时大于 1/fps 间隔时不再 sleep
+        等待（最大化采样率）；有限动画播完且画面连续 stable_frames 帧不变则提前
+        结束。返回 (帧序列, 各帧采集时刻秒)。
+        """
+        fps_i = max(1, int(fps))
+        interval = 1.0 / fps_i
+        if max_frames is None:
+            max_frames = int(max_wait * fps_i) + 2
+        frames: list[Image.Image] = [self._composited_shot()]
+        times: list[float] = [time.monotonic()]
+        prev = self._fast_hash(frames[0])
+        stable = 0
+        if on_frame is not None:
+            on_frame(1)
+        deadline = time.monotonic() + max_wait
+        next_t = time.monotonic()
+        while time.monotonic() < deadline and len(frames) < max_frames:
+            self._raise_if_cancelled(cancel_event)
+            next_t += interval
+            wait = next_t - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            frame = self._composited_shot()
+            frames.append(frame)
+            times.append(time.monotonic())
+            if on_frame is not None:
+                on_frame(len(frames))
+            h = self._fast_hash(frame)
+            finite, _infinite = self.animation_running_counts()
+            if finite == 0 and h == prev:
+                stable += 1
+                if stable >= stable_frames:
+                    break
+            else:
+                stable = 0
+            prev = h
         return frames, times
 
     def collect_resource_warnings(self) -> list[str]:

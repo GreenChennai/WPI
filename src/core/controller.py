@@ -40,6 +40,14 @@ def _check_cancel(cancel_event) -> None:
         raise ExportCancelledError("导出任务已取消")
 
 
+def _crop_to_lock_height(frames: list, params, engine) -> list:
+    """高度锁定：整页动画帧只保留顶部锁定高度区域（设备像素）。"""
+    if not (params.height and params.height > 0):
+        return frames
+    lock = int(params.height) * max(1, int(engine.device_scale))
+    return [f.crop((0, 0, f.width, min(lock, f.height))) for f in frames]
+
+
 def playback_durations(times: list[float], fps: int) -> tuple[list[int], float]:
     """按实际采集时刻计算每帧播放时长(ms)与实际播放帧率。
 
@@ -193,23 +201,23 @@ def run_export_sync(params: ExportParams, progress=None, status=None, cancel_eve
 
         if params.format == "GIF":
             # 与 PNG 尺寸语义一致——只限制宽度，高度为网页自然内容高度。
-            # 滚动逐帧录制（视口内截取）：视口外 canvas 动画在整页 captureBeyond
-            # Viewport 单拍里是陈旧光栅（会一闪一闪），滚动录制让每段内容在屏
-            # 时截取 → 动画流畅且覆盖整页。高度锁定时只录制顶部锁定区域。
+            # 整页动画录制 + 视口外 canvas 实时位图合成：整页同时呈现、所有
+            # canvas 动画流畅且同步（视口外 canvas 若靠整页单拍会取到陈旧光栅，
+            # 表现为噪波墨流消失/一闪一闪）。高度锁定时只保留顶部锁定区域。
             # 录满 max_wait 时长（真实时间采样），按真实采集节奏计算每帧延迟，
             # 播放速度恒等于真实时间，不用重复帧把动画拖慢。
-            _status("滚动录制整页动画帧…")
+            _status("录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
                 _progress(min(85, 45 + n))
 
-            frames, times = engine.capture_scroll_frames(
+            frames, times = engine.capture_full_page_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
-                scroll_limit=int(params.height) if params.height and params.height > 0 else None,
                 on_frame=_on_frame,
                 cancel_event=cancel_event,
             )
+            frames = _crop_to_lock_height(frames, params, engine)
             durations, play_fps = playback_durations(times, params.fps)
             _status("编码 GIF…")
             gif = GIFExporter().write(
@@ -228,22 +236,23 @@ def run_export_sync(params: ExportParams, progress=None, status=None, cancel_eve
             _progress(98)
 
         elif params.format == "MP4":
-            # 与 GIF 共用滚动逐帧录制，FFmpeg 高保真编码（x264 crf0）。
+            # 与 GIF 共用整页动画录制（含视口外 canvas 实时位图合成），
+            # FFmpeg 高保真编码（x264 crf0）。
             # 逐帧 JPEG 加速采样 + 按真实采样节奏编码——采样率达不到设定帧率时
             # 按实际帧率编码（播放速度 = 真实时间，不拖慢）；达到时按设定帧率
             # 编码（帧数足、时长正确）。
-            _status("滚动录制整页动画帧…")
+            _status("录制整页动画帧…")
 
             def _on_frame(n: int) -> None:
                 _progress(min(85, 45 + n))
 
-            frames, times = engine.capture_scroll_frames(
+            frames, times = engine.capture_full_page_frames(
                 fps=params.fps,
                 max_wait=params.max_wait,
-                scroll_limit=int(params.height) if params.height and params.height > 0 else None,
                 on_frame=_on_frame,
                 cancel_event=cancel_event,
             )
+            frames = _crop_to_lock_height(frames, params, engine)
             _durations, play_fps = playback_durations(times, params.fps)
             _status("编码 MP4…")
             mp4 = MP4Exporter().write(
