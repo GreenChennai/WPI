@@ -49,18 +49,18 @@ _CARD_SIZE = 168  # 卡片边长（px），自适应排版按此计算列数
 class _PaletteTask(QRunnable):
     """后台提取单项目主色，完成后经面板信号回传（线程安全）。
 
-    key 为项目唯一标识（目录项目=目录路径；pure.html 下的单文件项目=文件完整
-    路径），用于回传时精确对应卡片。
+    key 为项目唯一标识；html_path 为待提取主色的具体 HTML 文件（single_file
+    模式：仅扫描该文件及其同目录被引用的样式/脚本，保证同目录各 HTML 独立配色）。
     """
 
-    def __init__(self, key: str, project_dir: str, panel: WorkspacePanel):
+    def __init__(self, key: str, html_path: str, panel: WorkspacePanel):
         super().__init__()
         self.key = key
-        self.project_dir = project_dir
+        self.html_path = html_path
         self.panel = panel
 
     def run(self) -> None:
-        colors = extract_palette(self.project_dir, top=4)
+        colors = extract_palette(self.html_path, top=4, single_file=True)
         # emit 跨线程自动使用 QueuedConnection，回到 GUI 线程执行
         self.panel.paletteReady.emit(self.key, tuple(colors))
 
@@ -160,6 +160,8 @@ class ProjectCard(_CardBase):
     previewRequested = Signal(str)
     browserRequested = Signal(str)
     activated = Signal(str)
+    # 下拉框切换入口 HTML 后，请求按新文件重新提取主色
+    paletteRequest = Signal(str)
     # 卡片鼠标点击（project_dir, ctrl 按下, shift 按下）→ 多选逻辑
     clicked = Signal(str, bool, bool)
 
@@ -267,6 +269,8 @@ class ProjectCard(_CardBase):
             return
         self.selected_html = html_name
         self.activated.emit(self._key)
+        # 入口 HTML 变化 → 按新文件重新提取 4 主题色
+        self.paletteRequest.emit(self._key)
 
     def selected_html_path(self) -> str:
         """当前选中的入口 HTML 完整路径。"""
@@ -393,7 +397,7 @@ class WorkspacePanel(QGroupBox):
     projectSelected = Signal(str)   # 激活项目（目录）
     previewRequested = Signal(str)  # 打开预览窗口
     browserRequested = Signal(str)  # 系统浏览器打开
-    paletteReady = Signal(str, object)  # (project_dir, colors) 后台线程回传
+    paletteReady = Signal(str, object)  # (key, colors) 后台线程回传
     workdirChanged = Signal(str)    # 工作目录切换（供设置记忆）
     selectionChanged = Signal(list) # 多选集合变化（项目 dir 列表）
 
@@ -560,8 +564,9 @@ class WorkspacePanel(QGroupBox):
             card.browserRequested.connect(self.browserRequested.emit)
             card.activated.connect(self._on_activate)
             card.clicked.connect(self._on_card_clicked)
+            card.paletteRequest.connect(self._on_palette_request)
             self._cards[card._key] = card
-            task = _PaletteTask(card._key, card.project_dir, self)
+            task = _PaletteTask(card._key, card.selected_html_path(), self)
             self._pool.start(task)
 
         for folder in folders:
@@ -677,6 +682,13 @@ class WorkspacePanel(QGroupBox):
     def _on_activate(self, project: str) -> None:
         self._set_active(project)
         self.projectSelected.emit(project)
+
+    def _on_palette_request(self, key: str) -> None:
+        """下拉框切换入口 HTML 后，按新文件重新提取主色。"""
+        card = self._cards.get(key)
+        if card is None:
+            return
+        self._pool.start(_PaletteTask(key, card.selected_html_path(), self))
 
     def _set_active(self, project: str) -> None:
         """仅记录「当前激活项目」（用于预览 / 输出建议），不改变多选高亮。

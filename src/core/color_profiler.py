@@ -24,6 +24,10 @@ TEXT_EXTS = {
     ".ts", ".tsx", ".vue", ".svelte", ".scss", ".sass",
     ".less", ".svg", ".json", ".txt",
 }
+# 单页面主色提取时，仅纳入该页面自身引用的样式/脚本资源，避免把同目录其他
+# HTML 页面也并入统计（否则同目录多页面会呈现相同配色）。
+_STYLE_EXTS = {".css", ".scss", ".sass", ".less"}
+_SCRIPT_EXTS = {".js", ".mjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte"}
 MAX_FILES = 120            # 每个项目最多解析的文件数
 MAX_FILE_BYTES = 512 * 1024  # 单文件超过则跳过
 MAX_TOTAL_BYTES = 6 * 1024 * 1024  # 项目累计读取上限
@@ -33,6 +37,8 @@ _RGB_RE = re.compile(r"rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})")
 _HSL_RE = re.compile(
     r"hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%"
 )
+_LINK_RE = re.compile(r"<link\b[^>]*\bhref\s*=\s*[\"']([^\"']+)[\"']", re.I)
+_SCRIPT_RE = re.compile(r"<script\b[^>]*\bsrc\s*=\s*[\"']([^\"']+)[\"']", re.I)
 
 # 常用 CSS 命名色（完整 148 色中对静态网站最有价值的子集）
 NAMED_COLORS: dict[str, str] = {
@@ -124,16 +130,58 @@ def _signature(project_dir: str, files: list[str]) -> object:
     return tuple(marks)
 
 
-def extract_palette(project_dir: str, top: int = 4) -> list[str]:
-    """返回项目主色列表（最多 top 个 #RRGGBB），带缓存。"""
-    if not os.path.isdir(project_dir):
-        return []
-    files = _scan_files(project_dir)
-    sig = _signature(project_dir, files)
-    cached = _cache.get(project_dir)
-    if cached is not None and cached[0] == sig:
-        return cached[1]
+def _clean_ref(ref: str) -> str:
+    """去掉 URL 中的查询串/锚点，仅保留路径部分。"""
+    return ref.split("?")[0].split("#")[0].strip()
 
+
+def _resolve_same_dir(base_dir: str, ref: str) -> str | None:
+    """将相对引用解析为同目录下的绝对路径（仅限同目录，拒绝子目录/上层引用）。"""
+    ab = os.path.abspath(base_dir)
+    fp = os.path.normpath(os.path.join(ab, ref))
+    if os.path.dirname(fp) != ab:
+        return None
+    return fp if os.path.isfile(fp) else None
+
+
+def _collect_page_files(html_path: str) -> list[str]:
+    """收集单页面主色提取所需的文件：页面本身 + 同目录被其引用的样式/脚本。
+
+    仅纳入同目录（非递归）的资源，且只取样式/脚本类扩展名，避免把同目录其他
+    HTML 页面或子目录资源并入统计，从而保证「每个 HTML 文件有各自的主题色」。
+    """
+    base_dir = os.path.dirname(os.path.abspath(html_path))
+    files = [html_path]
+    try:
+        with open(html_path, "rb") as fh:
+            text = fh.read(MAX_FILE_BYTES).decode("utf-8", errors="ignore")
+    except OSError:
+        return files
+    refs: set[str] = set()
+    for m in _LINK_RE.finditer(text):
+        ref = _clean_ref(m.group(1))
+        if not ref or ref.startswith(("http://", "https://", "//", "data:", "mailto:")):
+            continue
+        if os.path.splitext(ref)[1].lower() not in _STYLE_EXTS:
+            continue
+        fp = _resolve_same_dir(base_dir, ref)
+        if fp:
+            refs.add(fp)
+    for m in _SCRIPT_RE.finditer(text):
+        ref = _clean_ref(m.group(1))
+        if not ref or ref.startswith(("http://", "https://", "//", "data:", "mailto:")):
+            continue
+        if os.path.splitext(ref)[1].lower() not in _SCRIPT_EXTS:
+            continue
+        fp = _resolve_same_dir(base_dir, ref)
+        if fp:
+            refs.add(fp)
+    files.extend(sorted(refs))
+    return files
+
+
+def _count_in_files(files: list[str], top: int) -> list[str]:
+    """统计给定文件中出现的颜色（按频次取 Top-N）。"""
     counter: Counter[str] = Counter()
     for fp in files:
         try:
@@ -156,9 +204,37 @@ def extract_palette(project_dir: str, top: int = 4) -> list[str]:
         lower = text.lower()
         for name, count in _count_words(lower).items():
             counter["#" + NAMED_COLORS[name]] += count
+    return [c for c, _ in counter.most_common(top)]
 
-    colors = [c for c, _ in counter.most_common(top)]
-    _cache[project_dir] = (sig, colors)
+
+def extract_palette(target: str, top: int = 4, single_file: bool = False) -> list[str]:
+    """返回主色列表（最多 top 个 #RRGGBB），带缓存。
+
+    - target 为目录（single_file=False）：扫描整个目录（整项目概览）。
+    - target 为 HTML 文件（single_file=True）：仅扫描该页面自身及其同目录被引用
+      的样式/脚本资源，反映单个页面的主题色（同目录多 HTML 互不干扰）。
+    """
+    if single_file:
+        if not os.path.isfile(target):
+            return []
+        files = _collect_page_files(target)
+        sig = _signature(target, files)
+        cached = _cache.get(target)
+        if cached is not None and cached[0] == sig:
+            return cached[1]
+        colors = _count_in_files(files, top)
+        _cache[target] = (sig, colors)
+        return colors
+
+    if not os.path.isdir(target):
+        return []
+    files = _scan_files(target)
+    sig = _signature(target, files)
+    cached = _cache.get(target)
+    if cached is not None and cached[0] == sig:
+        return cached[1]
+    colors = _count_in_files(files, top)
+    _cache[target] = (sig, colors)
     return colors
 
 
