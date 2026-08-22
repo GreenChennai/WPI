@@ -4,6 +4,9 @@
 - 含 index.html 的文件夹为「项目」卡片（正方形圆角 + 4 主色色卡）；
 - 不含 index.html 的文件夹视为「子目录卡片」，点击可进入继续搜索
   （二级 / 三级 / 四级…），并提供「返回上级」导航；
+- 若某目录内存在 pure.html 标记文件（仅校验名字与后缀，不读内容），该目录
+  本身不作为项目，而是作为可进入的「二级文件夹」；其内除 pure.html 外的每个
+  .html/.htm 文件各视为一个独立项目（进入该文件夹后展开为独立卡片）；
 - 色卡通过高性能静态资源扫描异步提取，不阻塞界面。
 """
 
@@ -44,17 +47,22 @@ _CARD_SIZE = 168  # 卡片边长（px），自适应排版按此计算列数
 
 
 class _PaletteTask(QRunnable):
-    """后台提取单项目主色，完成后经面板信号回传（线程安全）。"""
+    """后台提取单项目主色，完成后经面板信号回传（线程安全）。
 
-    def __init__(self, project_dir: str, panel: WorkspacePanel):
+    key 为项目唯一标识（目录项目=目录路径；pure.html 下的单文件项目=文件完整
+    路径），用于回传时精确对应卡片。
+    """
+
+    def __init__(self, key: str, project_dir: str, panel: WorkspacePanel):
         super().__init__()
+        self.key = key
         self.project_dir = project_dir
         self.panel = panel
 
     def run(self) -> None:
         colors = extract_palette(self.project_dir, top=4)
         # emit 跨线程自动使用 QueuedConnection，回到 GUI 线程执行
-        self.panel.paletteReady.emit(self.project_dir, tuple(colors))
+        self.panel.paletteReady.emit(self.key, tuple(colors))
 
 
 class SwatchBox(QFrame):
@@ -155,9 +163,22 @@ class ProjectCard(_CardBase):
     # 卡片鼠标点击（project_dir, ctrl 按下, shift 按下）→ 多选逻辑
     clicked = Signal(str, bool, bool)
 
-    def __init__(self, project_dir: str, parent=None):
+    def __init__(self, project_dir: str, parent=None, entry_html: str | None = None):
         super().__init__(parent)
-        self.project_dir = project_dir
+        self._entry_html = entry_html
+        if entry_html:
+            # pure.html 模式下的「单文件项目」：project_dir 仍是挂载/取色目录，
+            # 唯一标识用文件完整路径，避免同目录多文件互相覆盖。
+            self.project_dir = project_dir
+            self._key = os.path.join(project_dir, entry_html)
+            display = (
+                entry_html[:-5] if entry_html.lower().endswith(".html")
+                else entry_html
+            )
+        else:
+            self.project_dir = os.path.abspath(project_dir)
+            self._key = self.project_dir
+            display = os.path.basename(os.path.normpath(project_dir))
         self.setObjectName("projectCard")
         self.setFixedSize(_CARD_SIZE, _CARD_SIZE)
         self.setCursor(Qt.PointingHandCursor)
@@ -166,9 +187,12 @@ class ProjectCard(_CardBase):
         self._export_all = False   # 是否导出项目内全部 HTML
 
         # 项目内全部 HTML 文件
-        self.html_files: list[str] = list_html_files(project_dir)
+        self.html_files: list[str] = (
+            [entry_html] if entry_html else list_html_files(self.project_dir)
+        )
         self.selected_html: str = (
-            resolve_index(project_dir)
+            entry_html
+            or resolve_index(self.project_dir)
             or (self.html_files[0] if self.html_files else "")
         )
 
@@ -176,7 +200,7 @@ class ProjectCard(_CardBase):
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(6)
 
-        self.name_label = QLabel(os.path.basename(os.path.normpath(project_dir)))
+        self.name_label = QLabel(display)
         self.name_label.setObjectName("cardTitle")
         self.name_label.setWordWrap(True)
         self.name_label.setAlignment(Qt.AlignCenter)
@@ -228,11 +252,11 @@ class ProjectCard(_CardBase):
         btns.setSpacing(6)
         btn_preview = QPushButton("预览")
         btn_preview.setObjectName("cardPrimary")
-        btn_preview.clicked.connect(lambda: self.previewRequested.emit(self.project_dir))
+        btn_preview.clicked.connect(lambda: self.previewRequested.emit(self._key))
         btns.addWidget(btn_preview, 1)
         btn_browser = QPushButton("浏览器打开")
         btn_browser.setObjectName("cardSecondary")
-        btn_browser.clicked.connect(lambda: self.browserRequested.emit(self.project_dir))
+        btn_browser.clicked.connect(lambda: self.browserRequested.emit(self._key))
         btn_browser.setToolTip("用系统默认浏览器打开该项目（可 F12 审查元素）")
         btns.addWidget(btn_browser, 1)
         lay.addLayout(btns)
@@ -242,7 +266,7 @@ class ProjectCard(_CardBase):
         if not html_name:
             return
         self.selected_html = html_name
-        self.activated.emit(self.project_dir)
+        self.activated.emit(self._key)
 
     def selected_html_path(self) -> str:
         """当前选中的入口 HTML 完整路径。"""
@@ -293,7 +317,7 @@ class ProjectCard(_CardBase):
         mods = QApplication.keyboardModifiers()
         ctrl = bool(mods & Qt.ControlModifier)
         shift = bool(mods & Qt.ShiftModifier)
-        self.clicked.emit(self.project_dir, ctrl, shift)
+        self.clicked.emit(self._key, ctrl, shift)
         super().mousePressEvent(event)
 
     def set_selected(self, selected: bool, multi: bool = False) -> None:
@@ -504,8 +528,10 @@ class WorkspacePanel(QGroupBox):
 
         projects, folders = self._scan_entries(current)
         self._entries = [  # 保序条目（先项目后子目录），供自适应排版 reflow
-            *projects, *folders
+            (p if isinstance(p, str) else os.path.join(p[0], p[1]))
+            for p in projects
         ]
+        self._entries.extend(folders)
         self._refresh_cards(projects, folders)
         self._reflow()
 
@@ -513,18 +539,29 @@ class WorkspacePanel(QGroupBox):
         self._empty_container.setVisible(empty)
         self._scroll.setVisible(not empty)
 
-    def _refresh_cards(self, projects: list[str], folders: list[str]) -> None:
-        """仅创建新卡片（每个条目对应一张卡片，顺序记录）。"""
-        for project in projects:
-            if project in self._cards:
-                continue
-            card = ProjectCard(project, self)
+    def _refresh_cards(self, projects, folders) -> None:
+        """仅创建新卡片（每个条目对应一张卡片，顺序记录）。
+
+        projects 元素为目录路径（普通项目）或 (目录, html 文件名) 元组
+        （pure.html 模式下的单文件项目）；folders 为子目录路径。
+        """
+        for proj in projects:
+            if isinstance(proj, tuple):
+                d, html = proj
+                key = os.path.join(d, html)
+                if key in self._cards:
+                    continue
+                card = ProjectCard(d, self, entry_html=html)
+            else:
+                if proj in self._cards:
+                    continue
+                card = ProjectCard(proj, self)
             card.previewRequested.connect(self.previewRequested.emit)
             card.browserRequested.connect(self.browserRequested.emit)
             card.activated.connect(self._on_activate)
             card.clicked.connect(self._on_card_clicked)
-            self._cards[project] = card
-            task = _PaletteTask(project, self)
+            self._cards[card._key] = card
+            task = _PaletteTask(card._key, card.project_dir, self)
             self._pool.start(task)
 
         for folder in folders:
@@ -599,21 +636,36 @@ class WorkspacePanel(QGroupBox):
             self.refresh()
 
     @staticmethod
-    def _scan_entries(workdir: str) -> tuple[list[str], list[str]]:
-        """返回 (含入口 HTML 的项目目录列表, 无入口的子目录列表)。"""
-        projects: list[str] = []
+    def _scan_entries(workdir: str) -> tuple[list, list[str]]:
+        """返回 (项目列表, 子目录列表)。
+
+        项目列表元素：目录路径（普通项目）或 (目录, html 文件名) 元组
+        （pure.html 模式下的单文件项目）。
+
+        pure.html 标记规则：目录内若存在名为 pure.html 的文件（仅校验名字与
+        后缀，不读内容），则——
+        - 该目录本身不视为项目，而是作为可进入的「二级文件夹」；
+        - 该目录内除 pure.html 外的每个 .html/.htm 文件各视为一个独立项目
+          （以 (目录, 文件名) 表示，进入该文件夹后展开为独立卡片）。
+        """
+        projects: list = []
         folders: list[str] = []
         try:
             names = sorted(os.listdir(workdir))
         except OSError:
             return projects, folders
+        is_pure = os.path.isfile(os.path.join(workdir, "pure.html"))
         for name in names:
             full = os.path.join(workdir, name)
             if os.path.isdir(full):
-                if resolve_index(full):
-                    projects.append(full)
+                if os.path.isfile(os.path.join(full, "pure.html")):
+                    folders.append(full)          # pure 文件夹 → 可进入的二级文件夹
+                elif resolve_index(full):
+                    projects.append(full)         # 普通目录项目
                 else:
-                    folders.append(full)
+                    folders.append(full)          # 普通子目录
+            elif is_pure and name.lower().endswith((".html", ".htm")) and name.lower() != "pure.html":
+                projects.append((workdir, name))  # pure 目录内的单文件项目
         return projects, folders
 
     @staticmethod
