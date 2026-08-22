@@ -13,17 +13,20 @@
 from __future__ import annotations
 
 import os
+import sys
 
 from PySide6.QtCore import (
     Property,
     QEvent,
     QPropertyAnimation,
     QRunnable,
+    QSize,
     Qt,
     QThreadPool,
+    QUrl,
     Signal,
 )
-from PySide6.QtGui import QColor, QPainter, QPainterPath
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -33,6 +36,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QScrollArea,
     QTabBar,
@@ -40,10 +44,46 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config.presets import WORKERFILE_NAME, default_workspace_dir
+from config.presets import app_base_dir, default_workspace_dir
 from core.color_profiler import extract_palette
 from core.static_server import list_html_files, resolve_index
 from gui import tokens as T
+
+
+def _add_icon_path() -> str:
+    """「+」按钮图标（加号.svg），优先取打包/仓库 assets，兜底用户原路径。"""
+    name = "加号.svg"
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", app_base_dir())
+        for base in (meipass, app_base_dir()):
+            p = os.path.join(base, "assets", name)
+            if os.path.isfile(p):
+                return p
+    p = os.path.join(app_base_dir(), "assets", name)
+    if os.path.isfile(p):
+        return p
+    return r"E:\平日资料\GitHub\图标\icon\加号.svg"
+
+
+def _load_add_icon() -> QIcon:
+    """渲染加号 SVG 为图标。
+
+    采用 QSvgRenderer 直接绘制（依赖保留的 Qt6Svg 运行库），避免依赖可能被
+    打包剔除的 qsvg 图片格式插件，保证 exe 内图标仍正常显示。
+    """
+    path = _add_icon_path()
+    try:
+        from PySide6.QtSvg import QSvgRenderer
+        from PySide6.QtGui import QPainter as _QP, QPixmap
+        renderer = QSvgRenderer(path)
+        if renderer.isValid():
+            pm = QPixmap(20, 20)
+            pm.fill(Qt.transparent)
+            _QP(pm).render(renderer)
+            return QIcon(pm)
+    except Exception:
+        pass
+    return QIcon(path)
 
 _CARD_SIZE = 168  # 卡片边长（px），自适应排版按此计算列数
 
@@ -429,6 +469,7 @@ class WorkspacePanel(QGroupBox):
         # 标签页行：目录标签 + 右侧「+」按钮（永远在最右）
         tab_row = QHBoxLayout()
         tab_row.setSpacing(4)
+        tab_row.setContentsMargins(0, 0, 0, 8)   # 与下方项目列表保持安全距离
         self._tabbar = QTabBar()
         self._tabbar.setObjectName("workdirTabs")
         self._tabbar.setMovable(True)
@@ -437,11 +478,15 @@ class WorkspacePanel(QGroupBox):
         self._tabbar.currentChanged.connect(self._on_tab_selected)
         self._tabbar.tabCloseRequested.connect(self._on_tab_close)
         self._tabbar.tabMoved.connect(self._on_tab_moved)
+        self._tabbar.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._tabbar.customContextMenuRequested.connect(self._on_tab_context_menu)
         tab_row.addWidget(self._tabbar, 1)
-        self._add_tab_btn = QPushButton("+")
+        self._add_tab_btn = QPushButton()
         self._add_tab_btn.setObjectName("tabAdd")
         self._add_tab_btn.setToolTip("添加工作目录（新建标签页）")
-        self._add_tab_btn.setFixedSize(26, 24)
+        self._add_tab_btn.setFixedSize(30, 30)
+        self._add_tab_btn.setIcon(_load_add_icon())
+        self._add_tab_btn.setIconSize(QSize(18, 18))
         self._add_tab_btn.clicked.connect(self.add_directory)
         tab_row.addWidget(self._add_tab_btn)
         root.addLayout(tab_row)
@@ -521,21 +566,21 @@ class WorkspacePanel(QGroupBox):
 
     # ------------------------------------------------------------------ tabs
     def init_tabs(self, tabs: list[str], current: str | None = None) -> None:
-        """初始化标签页（顺序即排序）。WorkerFile 始终固定首位且不可删除/移动。
+        """初始化标签页（顺序即排序）。WorkerFile 默认存在且不可删除，但可移动。
 
         tabs：调用方从设置恢复的标签页绝对路径列表；current：当前选中项。
         """
         wf = default_workspace_dir()
         cleaned: list[str] = []
         seen: set[str] = set()
-        for p in ([wf] + list(tabs)):           # 首位强制为 WorkerFile
+        for p in list(tabs):
             ap = os.path.abspath(p)
             if ap in seen:
                 continue
             seen.add(ap)
             cleaned.append(ap)
-        if not cleaned or os.path.abspath(cleaned[0]) != os.path.abspath(wf):
-            cleaned.insert(0, wf)
+        if not any(os.path.abspath(t) == os.path.abspath(wf) for t in cleaned):
+            cleaned.insert(0, wf)            # 仅当缺失时补入 WorkerFile
         self._tabs = cleaned
         if current and current in self._tabs:
             self._current = self._tabs.index(current)
@@ -570,8 +615,10 @@ class WorkspacePanel(QGroupBox):
         self._activate_current()
 
     def remove_tab(self, index: int) -> None:
-        if index <= 0 or index >= len(self._tabs):
-            return                            # 首位 WorkerFile 不可删除
+        if not (0 <= index < len(self._tabs)):
+            return
+        if os.path.abspath(self._tabs[index]) == os.path.abspath(default_workspace_dir()):
+            return                            # WorkerFile 不可删除
         self._tabs.pop(index)
         if self._current == index:
             self._current = min(index, len(self._tabs) - 1)
@@ -594,15 +641,35 @@ class WorkspacePanel(QGroupBox):
         self._tabbar.blockSignals(True)
         while self._tabbar.count():
             self._tabbar.removeTab(0)
+        wf = default_workspace_dir()
         for p in self._tabs:
             self._tabbar.addTab(os.path.basename(os.path.normpath(p)))
         for i in range(self._tabbar.count()):
             self._tabbar.setTabToolTip(i, self._tabs[i])
-            # 首位 WorkerFile 不可关闭：移除其关闭按钮
-            if i == 0:
+            # WorkerFile 不可删除：移除其关闭按钮（位置不固定，按路径判定）
+            if os.path.abspath(self._tabs[i]) == os.path.abspath(wf):
                 self._tabbar.setTabButton(i, QTabBar.RightSide, None)
         self._tabbar.setCurrentIndex(self._current)
         self._tabbar.blockSignals(False)
+        # 标签宽度自适应（布局完成后按实际可用宽度压缩）
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._adjust_tab_widths)
+
+    def _adjust_tab_widths(self) -> None:
+        """标签默认 160×30；若总宽超出可用宽度则压缩（下限 48）以适配 UI。"""
+        count = self._tabbar.count()
+        if count == 0:
+            return
+        avail = self._tabbar.width()
+        if avail <= 0:
+            return
+        target = 160
+        if count * 160 > avail:
+            target = max(48, avail // count)
+        self._tabbar.setStyleSheet(
+            f"QTabBar#workdirTabs::tab {{ min-width: {target}px; "
+            f"max-width: {target}px; height: 30px; }}"
+        )
 
     def _on_tab_selected(self, index: int) -> None:
         if 0 <= index < len(self._tabs) and index != self._current:
@@ -614,9 +681,8 @@ class WorkspacePanel(QGroupBox):
 
     def _on_tab_moved(self, frm: int, to: int) -> None:
         n = len(self._tabs)
-        if (frm == to or frm <= 0 or to <= 0
-                or not (0 <= frm < n) or not (0 <= to <= n)):
-            self._rebuild_tabbar()          # 还原（越界或 WorkerFile 固定首位）
+        if frm == to or not (0 <= frm < n) or not (0 <= to <= n):
+            self._rebuild_tabbar()          # 越界则还原
             return
         cur = self._tabs[self._current]
         item = self._tabs.pop(frm)
@@ -624,6 +690,24 @@ class WorkspacePanel(QGroupBox):
         self._current = self._tabs.index(cur)
         self._rebuild_tabbar()
         self.tabsChanged.emit(list(self._tabs))
+
+    def _on_tab_context_menu(self, pos) -> None:
+        idx = self._tabbar.tabAt(pos)
+        if idx < 0 or idx >= len(self._tabs):
+            return
+        path = self._tabs[idx]
+        menu = QMenu(self)
+        act_open = menu.addAction("在文件管理器中打开")
+        act_del = menu.addAction("删除这个工作目录")
+        if os.path.abspath(path) == os.path.abspath(default_workspace_dir()):
+            act_del.setEnabled(False)        # WorkerFile 不可删除
+        action = menu.exec(self._tabbar.mapToGlobal(pos))
+        if action is None:
+            return
+        if action == act_open:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        elif action == act_del:
+            self.remove_tab(idx)
 
     def set_workdir(self, path: str) -> None:
         """兼容旧接口：以目录路径驱动（自动转为对应/新增标签页并激活）。"""
@@ -755,6 +839,7 @@ class WorkspacePanel(QGroupBox):
         super().resizeEvent(event)
         if self._grid.count() and self._entries and self.isVisible():
             self._reflow()
+        self._adjust_tab_widths()
 
     # ------------------------------------------------------------- internal
     def current_dir(self) -> str:

@@ -166,6 +166,9 @@ QPushButton#warningBtn:focus {{
 }}
 
 /* ---------- 工作目录标签页（多目录管理） ---------- */
+QTabBar#workdirTabs {{
+    qproperty-drawBase: 0;
+}}
 QTabBar#workdirTabs::tab {{
     background: transparent;
     color: {T.TEXT_SECONDARY};
@@ -173,7 +176,7 @@ QTabBar#workdirTabs::tab {{
     border-bottom: none;
     border-top-left-radius: {T.RADIUS_SM}px;
     border-top-right-radius: {T.RADIUS_SM}px;
-    padding: 4px 12px 4px 12px;
+    padding: 2px 8px;
     margin-right: 2px;
 }}
 QTabBar#workdirTabs::tab:selected {{
@@ -194,8 +197,6 @@ QPushButton#tabAdd {{
     color: {T.TEXT_SECONDARY};
     border: 1px solid {T.BORDER};
     border-radius: {T.RADIUS_SM}px;
-    font-size: 16px;
-    font-weight: 700;
 }}
 QPushButton#tabAdd:hover {{
     background: {T.SURFACE};
