@@ -10,7 +10,7 @@ import os
 import threading
 import webbrowser
 
-from PySide6.QtCore import QThread, QTimer
+from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -61,7 +61,8 @@ class MainWindow(QMainWindow):
         self._boot_progress = QProgressBar()
         self._boot_progress.setRange(0, 100)
         self._boot_progress.setValue(0)
-        lay.addWidget(self._boot_progress)
+        self._boot_progress.setMaximumWidth(360)   # v2.7.0：启动进度条限宽居中，观感更聚焦
+        lay.addWidget(self._boot_progress, 0, Qt.AlignHCenter)
         self._boot_label = QLabel("正在准备…")
         self._boot_label.setProperty("secondary", True)
         self._boot_label.setAlignment(self._boot_label.alignment() | 0x0004)
