@@ -52,7 +52,7 @@ jobs:
       - name: Determine version
         shell: pwsh
         run: |
-          $ver = "3.0.3-" + (git rev-parse --short=7 HEAD)
+          $ver = "3.0.4-" + (git rev-parse --short=7 HEAD)
           $buildDir = (Get-ChildItem "dist_wpi" -Directory | Select-Object -First 1).FullName
           "VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
           "BUILD_DIR=$buildDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
@@ -71,7 +71,7 @@ jobs:
           tag_name: "WPI-${{ env.VERSION }}"
           name: "WPI ${{ env.VERSION }}"
           body: |
-            WPI v3.0.3 自动构建产物（推送到 main 触发）。
+            WPI v3.0.4 自动构建产物（推送到 main 触发）。
 
             内含：单文件程序 WPI.exe、附随 ffmpeg.exe、README、VERSION.txt。
           files: |

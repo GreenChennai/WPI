@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sys
 
-VERSION = "3.0.3"
+VERSION = "3.0.4"
 APP_NAME = "Website Page to Image"
 APP_TITLE = "Website Page to Image"
 WORKERFILE_NAME = "WorkerFile"
@@ -57,9 +57,9 @@ BATCH_ITEM_TIMEOUT_SECONDS = 900
 
 # 渲染 rAF 节流（所有导出格式统一）：无头模式下 requestAnimationFrame 不锁
 # 60fps，密集 rAF 画布动画会以数百 fps 占满渲染主线程，evaluate 续跑与
-# Playwright 超时都会失效 → 导出卡死。节流到 ~30fps：大幅降低主线程负载
-# 消除卡死，同时一次性 rAF 动效（墨滴扩散等逐帧动画）仍能在数秒内播完
-RENDER_RAF_THROTTLE_MS = 33
+# Playwright 超时都会失效 → 导出卡死。节流到 ~60fps（16ms）：动画更流畅，
+# 同时远低于「数百 fps 占满主线程」的卡死阈值，重交互页（INK）也能正常导出
+RENDER_RAF_THROTTLE_MS = 16
 
 # 滚动触发 reveal 遍历的步数上限：超长页面只滚前 N 步，避免遍历自身耗时过长
 SCROLL_REVEAL_MAX_STEPS = 40

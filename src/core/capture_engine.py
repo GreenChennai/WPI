@@ -831,10 +831,53 @@ class CaptureEngine:
                 frame.paste(img, (int(s["x"]), int(s["y"])), img)
         return frame.convert("RGB")
 
+    def _set_below_fold_visibility(self, hidden: bool) -> None:
+        """整页截图前临时隐藏视口外 canvas（visibility:hidden 保留布局）。
+
+        无头整页单拍对视口外 canvas 取到的是陈旧合成纹理；而这些 canvas 多为
+        透明背景（噪波墨流 / 入水扩散只绘制粒子与墨滴，其余透明），直接把实时
+        位图（toDataURL）粘贴到截图上时，透明区域会透出底下的陈旧纹理 → 表现为
+        墨流拖尾只在首帧出现、入水扩散忽明忽暗闪烁。截图前先把视口外 canvas
+        隐藏，使截图里该区域只显示底层页面（section 背景），随后用实时位图覆盖，
+        透明区域即正确透出页面背景，不再混入陈旧纹理。visibility:hidden 不阻断
+        rAF 与画布绘制，故 toDataURL 仍可取实时位图。
+        """
+        try:
+            self.page.evaluate(
+                """(hide) => {
+                    const vh = window.innerHeight || 600;
+                    const vis = hide ? 'hidden' : '';
+                    for (const c of document.querySelectorAll('canvas')) {
+                        const cs = getComputedStyle(c);
+                        const r = c.getBoundingClientRect();
+                        if (r.width <= 0 || r.height <= 0) continue;
+                        if (r.top >= 0 && r.bottom <= vh) continue;
+                        if (cs.transform && cs.transform !== 'none') continue;
+                        if (cs.mixBlendMode && cs.mixBlendMode !== 'normal') continue;
+                        c.style.visibility = vis;
+                    }
+                }""",
+                hidden,
+            )
+        except Exception:
+            pass
+
     def _composited_shot(self) -> Image.Image:
-        """一帧整页画面：先读视口外 canvas 实时位图，再整页截图，合成。"""
+        """一帧整页画面：读视口外 canvas 实时位图 → 隐藏这些 canvas 后整页截图
+        （背景/DOM 正常，canvas 区域透出页面背景而非陈旧纹理）→ 合成实时位图。
+        """
         snaps = self._canvas_snapshots()
-        bg = self._shot(full_page=True, jpeg=True)
+        if not snaps:
+            return self._shot(full_page=True, jpeg=True)
+        self._set_below_fold_visibility(True)
+        try:
+            # 等合成器按隐藏后的状态重绘一帧，否则整页截图可能仍含陈旧 canvas 纹理
+            self.page.evaluate(
+                "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
+            )
+            bg = self._shot(full_page=True, jpeg=True)
+        finally:
+            self._set_below_fold_visibility(False)
         return self._compose_canvases(bg, snaps)
 
     def capture_full_page_frames(
