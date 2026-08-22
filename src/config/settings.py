@@ -17,7 +17,9 @@ SETTINGS_NAME = "WPI_settings.json"
 
 # 已知键默认值（新增键朝后追加，旧文件缺少的键自动补默认值）
 DEFAULTS: dict = {
-    "workspace_dir": "",       # 留空 = 使用默认 WorkerFile 目录
+    "workspace_dir": "",       # 旧版单目录（兼容读取）
+    "workspace_tabs": [],      # 工作目录标签页（绝对路径列表，顺序即排序）
+    "current_tab": "",         # 当前选中标签页的绝对路径
     "width": DEFAULT_WIDTH,    # 导出宽度（px）
     "output_path": "",         # 最近一次导出文件位置
     "output_dir": "",          # 旧版字段：最近一次导出所在目录（兼容读取）
@@ -70,6 +72,32 @@ class Settings:
     @workspace_dir.setter
     def workspace_dir(self, path: str) -> None:
         self.data["workspace_dir"] = os.path.abspath(path) if path else ""
+        self.save()
+
+    @property
+    def workspace_tabs(self) -> list[str]:
+        """返回工作目录标签页绝对路径列表（顺序即排序）。"""
+        raw = self.data.get("workspace_tabs")
+        out: list[str] = []
+        if isinstance(raw, list):
+            for p in raw:
+                if p:
+                    out.append(os.path.abspath(str(p)))
+        return out
+
+    @workspace_tabs.setter
+    def workspace_tabs(self, paths: list[str]) -> None:
+        self.data["workspace_tabs"] = [os.path.abspath(p) for p in paths]
+        self.save()
+
+    @property
+    def current_tab(self) -> str:
+        value = str(self.data.get("current_tab") or "").strip()
+        return os.path.abspath(value) if value else ""
+
+    @current_tab.setter
+    def current_tab(self, path: str) -> None:
+        self.data["current_tab"] = os.path.abspath(path) if path else ""
         self.save()
 
     @property

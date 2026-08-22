@@ -35,10 +35,12 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
 
+from config.presets import WORKERFILE_NAME, default_workspace_dir
 from core.color_profiler import extract_palette
 from core.static_server import list_html_files, resolve_index
 from gui import tokens as T
@@ -398,13 +400,14 @@ class WorkspacePanel(QGroupBox):
     previewRequested = Signal(str)  # 打开预览窗口
     browserRequested = Signal(str)  # 系统浏览器打开
     paletteReady = Signal(str, object)  # (key, colors) 后台线程回传
-    workdirChanged = Signal(str)    # 工作目录切换（供设置记忆）
+    workdirChanged = Signal(str)    # 当前标签页根目录切换（供设置记忆）
+    tabsChanged = Signal(list)      # 标签页路径列表（顺序即排序，供设置记忆）
     selectionChanged = Signal(list) # 多选集合变化（项目 dir 列表）
 
     def __init__(self, parent=None):
         super().__init__("工作目录", parent)
         self.setObjectName("workdirBox")
-        self._stack: list[str] = []      # 导航栈：从根目录到当前目录
+        self._stack: list[str] = []      # 导航栈：从当前标签页根目录到当前目录
         self._cards: dict[str, ProjectCard] = {}
         self._folder_cards: dict[str, FolderCard] = {}
         self._active: str | None = None
@@ -415,9 +418,33 @@ class WorkspacePanel(QGroupBox):
         self._anchor: str | None = None             # Shift 连选锚点
         self._multi: bool = False                   # 是否处于多选（≥2）态
 
+        # 多工作目录标签页（WorkerFile 固定首位且不可关闭/移动）
+        self._tabs: list[str] = []
+        self._current: int = 0
+
         root = QVBoxLayout(self)
         root.setContentsMargins(T.SPACE_LG, T.SPACE_SM, T.SPACE_LG, T.SPACE_LG)
         root.setSpacing(6)
+
+        # 标签页行：目录标签 + 右侧「+」按钮（永远在最右）
+        tab_row = QHBoxLayout()
+        tab_row.setSpacing(4)
+        self._tabbar = QTabBar()
+        self._tabbar.setObjectName("workdirTabs")
+        self._tabbar.setMovable(True)
+        self._tabbar.setTabsClosable(True)
+        self._tabbar.setDrawBase(False)
+        self._tabbar.currentChanged.connect(self._on_tab_selected)
+        self._tabbar.tabCloseRequested.connect(self._on_tab_close)
+        self._tabbar.tabMoved.connect(self._on_tab_moved)
+        tab_row.addWidget(self._tabbar, 1)
+        self._add_tab_btn = QPushButton("+")
+        self._add_tab_btn.setObjectName("tabAdd")
+        self._add_tab_btn.setToolTip("添加工作目录（新建标签页）")
+        self._add_tab_btn.setFixedSize(26, 24)
+        self._add_tab_btn.clicked.connect(self.add_directory)
+        tab_row.addWidget(self._add_tab_btn)
+        root.addLayout(tab_row)
 
         # 目录地址显示在标题下方
         self.path_label = QLabel()
@@ -492,19 +519,123 @@ class WorkspacePanel(QGroupBox):
             return self._cards[project].selected_html_path()
         return None
 
-    def set_workdir(self, path: str) -> None:
+    # ------------------------------------------------------------------ tabs
+    def init_tabs(self, tabs: list[str], current: str | None = None) -> None:
+        """初始化标签页（顺序即排序）。WorkerFile 始终固定首位且不可删除/移动。
+
+        tabs：调用方从设置恢复的标签页绝对路径列表；current：当前选中项。
+        """
+        wf = default_workspace_dir()
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for p in ([wf] + list(tabs)):           # 首位强制为 WorkerFile
+            ap = os.path.abspath(p)
+            if ap in seen:
+                continue
+            seen.add(ap)
+            cleaned.append(ap)
+        if not cleaned or os.path.abspath(cleaned[0]) != os.path.abspath(wf):
+            cleaned.insert(0, wf)
+        self._tabs = cleaned
+        if current and current in self._tabs:
+            self._current = self._tabs.index(current)
+        else:
+            self._current = 0
+        self._rebuild_tabbar()
+        self.tabsChanged.emit(list(self._tabs))
+        self._activate_current()
+
+    def add_directory(self) -> None:
+        """弹窗选择目录并作为新标签页加入（右侧「+」按钮调用）。"""
+        start = (self._tabs[self._current]
+                 if self._tabs and os.path.isdir(self._tabs[self._current])
+                 else os.path.expanduser("~"))
+        path = QFileDialog.getExistingDirectory(self, "添加工作目录", start)
+        if path:
+            self.add_tab(path)
+
+    def add_tab(self, path: str) -> None:
         path = os.path.abspath(path)
-        self._stack = [path]
+        if not os.path.isdir(path):
+            return
+        if path in self._tabs:                  # 已存在 → 直接切换
+            self._current = self._tabs.index(path)
+            self._rebuild_tabbar()
+            self._activate_current()
+            return
+        self._tabs.append(path)
+        self._current = len(self._tabs) - 1
+        self._rebuild_tabbar()
+        self.tabsChanged.emit(list(self._tabs))
+        self._activate_current()
+
+    def remove_tab(self, index: int) -> None:
+        if index <= 0 or index >= len(self._tabs):
+            return                            # 首位 WorkerFile 不可删除
+        self._tabs.pop(index)
+        if self._current == index:
+            self._current = min(index, len(self._tabs) - 1)
+        elif self._current > index:
+            self._current -= 1
+        self._rebuild_tabbar()
+        self.tabsChanged.emit(list(self._tabs))
+        self._activate_current()
+
+    def _activate_current(self) -> None:
+        if not self._tabs:
+            return
+        root = self._tabs[self._current]
+        self._stack = [root]
         self._active = None
         self.refresh()
-        self.workdirChanged.emit(path)
+        self.workdirChanged.emit(root)
 
-    def choose_directory(self) -> None:
-        """弹窗选择新的工作目录（右侧「更换目录」按钮调用）。"""
-        start = self.workdir() if os.path.isdir(self.workdir()) else os.path.expanduser("~")
-        path = QFileDialog.getExistingDirectory(self, "选择工作目录", start)
-        if path:
-            self.set_workdir(path)
+    def _rebuild_tabbar(self) -> None:
+        self._tabbar.blockSignals(True)
+        while self._tabbar.count():
+            self._tabbar.removeTab(0)
+        for p in self._tabs:
+            self._tabbar.addTab(os.path.basename(os.path.normpath(p)))
+        for i in range(self._tabbar.count()):
+            self._tabbar.setTabToolTip(i, self._tabs[i])
+            # 首位 WorkerFile 不可关闭：移除其关闭按钮
+            if i == 0:
+                self._tabbar.setTabButton(i, QTabBar.RightSide, None)
+        self._tabbar.setCurrentIndex(self._current)
+        self._tabbar.blockSignals(False)
+
+    def _on_tab_selected(self, index: int) -> None:
+        if 0 <= index < len(self._tabs) and index != self._current:
+            self._current = index
+            self._activate_current()
+
+    def _on_tab_close(self, index: int) -> None:
+        self.remove_tab(index)
+
+    def _on_tab_moved(self, frm: int, to: int) -> None:
+        n = len(self._tabs)
+        if (frm == to or frm <= 0 or to <= 0
+                or not (0 <= frm < n) or not (0 <= to <= n)):
+            self._rebuild_tabbar()          # 还原（越界或 WorkerFile 固定首位）
+            return
+        cur = self._tabs[self._current]
+        item = self._tabs.pop(frm)
+        self._tabs.insert(to, item)
+        self._current = self._tabs.index(cur)
+        self._rebuild_tabbar()
+        self.tabsChanged.emit(list(self._tabs))
+
+    def set_workdir(self, path: str) -> None:
+        """兼容旧接口：以目录路径驱动（自动转为对应/新增标签页并激活）。"""
+        path = os.path.abspath(path)
+        if path in self._tabs:
+            self._current = self._tabs.index(path)
+        else:
+            self._tabs.append(path)
+            self._current = len(self._tabs) - 1
+        self._rebuild_tabbar()
+        self.tabsChanged.emit(list(self._tabs))
+        self._activate_current()
 
     def refresh(self) -> None:
         for card in list(self._cards.values()):

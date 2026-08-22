@@ -145,13 +145,6 @@ class MainWindow(QMainWindow):
         self.size_panel.onlinePreview.connect(self._open_preview_online)
         self.size_panel.onlineBrowser.connect(self._open_browser_online)
 
-        # 更换目录按钮位于右侧设置栏下方（调用左侧工作目录的选择，黄色）
-        self.chdir_btn = QPushButton("更换目录…")
-        self.chdir_btn.setObjectName("warningBtn")
-        self.chdir_btn.setMinimumHeight(30)
-        self.chdir_btn.clicked.connect(self.workspace.choose_directory)
-        right_layout.addWidget(self.chdir_btn)
-
         action_row = QHBoxLayout()
         self.preview_btn = QPushButton("预览当前项目")
         self.preview_btn.setToolTip("在软件内置预览窗口打开当前选中的项目")
@@ -194,6 +187,7 @@ class MainWindow(QMainWindow):
 
         # ---- 设置记忆（任何变更即写回软件同级目录的 WPI_settings.json）
         self.workspace.workdirChanged.connect(self._on_workdir_changed)
+        self.workspace.tabsChanged.connect(self._on_tabs_changed)
         self.size_panel.widthChanged.connect(self._on_width_changed)
         self.export_panel.outputChanged.connect(self._on_output_changed)
 
@@ -201,15 +195,13 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------- workspace ops
     def _scan_initial_project(self) -> None:
-        """从设置文件恢复上次工作目录 / 宽度 / 输出路径。"""
+        """从设置文件恢复上次工作目录标签页 / 宽度 / 输出路径。"""
         from config.presets import default_workspace_dir
 
         settings = self._settings
-        workdir = settings.workspace_dir or default_workspace_dir()
-        if os.path.isdir(workdir):
-            self.workspace.set_workdir(workdir)
-        else:
-            self.workspace.set_workdir(default_workspace_dir())
+        tabs = settings.workspace_tabs or [default_workspace_dir()]
+        current = settings.current_tab or None
+        self.workspace.init_tabs(tabs, current)
         if settings.width:
             self.size_panel.set_width(settings.width)
         if settings.output_path:
@@ -218,6 +210,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------ 设置记忆 handlers
     def _on_workdir_changed(self, path: str) -> None:
         self._settings.workspace_dir = path
+        self._settings.current_tab = path
+
+    def _on_tabs_changed(self, tabs: list[str]) -> None:
+        self._settings.workspace_tabs = tabs
 
     def _on_width_changed(self, width: int) -> None:
         self._settings.width = width

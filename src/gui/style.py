@@ -165,6 +165,43 @@ QPushButton#warningBtn:focus {{
     padding: 5px 15px;   /* 净尺寸保持不变 */
 }}
 
+/* ---------- 工作目录标签页（多目录管理） ---------- */
+QTabBar#workdirTabs::tab {{
+    background: transparent;
+    color: {T.TEXT_SECONDARY};
+    border: 1px solid {T.BORDER};
+    border-bottom: none;
+    border-top-left-radius: {T.RADIUS_SM}px;
+    border-top-right-radius: {T.RADIUS_SM}px;
+    padding: 4px 12px 4px 12px;
+    margin-right: 2px;
+}}
+QTabBar#workdirTabs::tab:selected {{
+    background: {T.SURFACE};
+    color: {T.TEXT_STRONG};
+    font-weight: 600;
+}}
+QTabBar#workdirTabs::tab:hover:!selected {{
+    color: {T.TEXT_STRONG};
+}}
+QTabBar#workdirTabs::close-button {{
+    image: none;
+    subcontrol-position: right;
+    margin: 0 2px 0 0;
+}}
+QPushButton#tabAdd {{
+    background: {T.SURFACE_PRESS};
+    color: {T.TEXT_SECONDARY};
+    border: 1px solid {T.BORDER};
+    border-radius: {T.RADIUS_SM}px;
+    font-size: 16px;
+    font-weight: 700;
+}}
+QPushButton#tabAdd:hover {{
+    background: {T.SURFACE};
+    color: {T.TEXT_STRONG};
+}}
+
 /* ---------- 工作目录项目卡片（背景/边框由 paintEvent 自绘，QSS 只留透明） ---------- */
 #projectCard, #folderCard {{
     background: transparent;
