@@ -26,6 +26,8 @@ _ICON_DATAS = [(os.path.join(ASSETS_DIR, "WPI.png"), "assets")]
 _ICON_DATAS += [
     (os.path.join(ASSETS_DIR, f"WPI_{s}.ico"), "assets") for s in _ICON_SIZES
 ]
+# 「+」按钮图标（加号.svg），打入包内 assets，保证 exe 内正常显示
+_ICON_DATAS += [(os.path.join(ASSETS_DIR, "加号.svg"), "assets")]
 
 # 下拉箭头 PNG 资源（src/gui/assets → 包内 gui/assets，供 QSS image:url() 引用）
 _GUI_ASSETS_DIR = os.path.join(SRC_DIR, "gui", "assets")
