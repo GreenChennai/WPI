@@ -37,8 +37,8 @@ _RGB_RE = re.compile(r"rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})")
 _HSL_RE = re.compile(
     r"hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%"
 )
-_LINK_RE = re.compile(r"<link\b[^>]*\bhref\s*=\s*[\"']([^\"']+)[\"']", re.I)
-_SCRIPT_RE = re.compile(r"<script\b[^>]*\bsrc\s*=\s*[\"']([^\"']+)[\"']", re.I)
+_LINK_RE = re.compile(r"<link\b[^>]*\bhref\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
+_SCRIPT_RE = re.compile(r"<script\b[^>]*\bsrc\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
 
 # 常用 CSS 命名色（完整 148 色中对静态网站最有价值的子集）
 NAMED_COLORS: dict[str, str] = {
@@ -87,10 +87,7 @@ def _hsl_to_hex(h: float, s: float, l: float) -> str | None:
         r, g, b = x, 0, c
     else:
         r, g, b = c, 0, x
-    return "#%02x%02x%02x" % (
-        int(round((r + m) * 255)), int(round((g + m) * 255)),
-        int(round((b + m) * 255)),
-    )
+    return f"#{round((r + m) * 255):02x}{round((g + m) * 255):02x}{round((b + m) * 255):02x}"
 
 
 def _scan_files(project_dir: str) -> list[str]:
@@ -132,7 +129,7 @@ def _signature(project_dir: str, files: list[str]) -> object:
 
 def _clean_ref(ref: str) -> str:
     """去掉 URL 中的查询串/锚点，仅保留路径部分。"""
-    return ref.split("?")[0].split("#")[0].strip()
+    return ref.split("?", maxsplit=1)[0].split("#", maxsplit=1)[0].strip()
 
 
 def _resolve_same_dir(base_dir: str, ref: str) -> str | None:
@@ -196,7 +193,7 @@ def _count_in_files(files: list[str], top: int) -> list[str]:
         for m in _HEX_RE.finditer(text):
             counter[_norm_hex(m.group(1))] += 1
         for r, g, b in _RGB_RE.findall(text):
-            counter["#%02x%02x%02x" % (int(r), int(g), int(b))] += 1
+            counter[f"#{int(r):02x}{int(g):02x}{int(b):02x}"] += 1
         for h, s, l in _HSL_RE.findall(text):
             hexv = _hsl_to_hex(float(h), float(s), float(l))
             if hexv:

@@ -11,7 +11,15 @@ from __future__ import annotations
 import json
 import os
 
-from config.presets import DEFAULT_WIDTH, app_base_dir, default_workspace_dir
+from config.presets import (
+    DEFAULT_FORMAT,
+    DEFAULT_SCALE,
+    DEFAULT_WIDTH,
+    FORMATS,
+    SCALE_PRESETS,
+    app_base_dir,
+    default_workspace_dir,
+)
 
 SETTINGS_NAME = "WPI_settings.json"
 
@@ -23,6 +31,9 @@ DEFAULTS: dict = {
     "width": DEFAULT_WIDTH,    # 导出宽度（px）
     "output_path": "",         # 最近一次导出文件位置
     "output_dir": "",          # 旧版字段：最近一次导出所在目录（兼容读取）
+    "format": DEFAULT_FORMAT,  # 导出格式
+    "scale": DEFAULT_SCALE,    # 分辨率倍率
+    "height_limit": 0,         # 高度锁定（0=不限制；>0 锁定高度 px）
 }
 
 
@@ -38,7 +49,7 @@ class Settings:
     def load(self) -> None:
         """读取设置；文件缺失时按默认值创建。"""
         try:
-            with open(self.path, "r", encoding="utf-8") as fh:
+            with open(self.path, encoding="utf-8") as fh:
                 stored = json.load(fh)
             if isinstance(stored, dict):
                 self.data = {**dict(DEFAULTS), **stored}
@@ -124,4 +135,39 @@ class Settings:
         if path:
             self.data["output_dir"] = os.path.dirname(os.path.abspath(path))
         self.data["output_path"] = path or ""
+        self.save()
+
+    @property
+    def format(self) -> str:
+        value = str(self.data.get("format") or "").strip().upper()
+        return value if value in FORMATS else DEFAULT_FORMAT
+
+    @format.setter
+    def format(self, value: str) -> None:
+        self.data["format"] = str(value).upper() if value in FORMATS else DEFAULT_FORMAT
+        self.save()
+
+    @property
+    def scale(self) -> int:
+        try:
+            value = int(self.data.get("scale", DEFAULT_SCALE))
+        except (TypeError, ValueError):
+            return DEFAULT_SCALE
+        return value if value in SCALE_PRESETS else DEFAULT_SCALE
+
+    @scale.setter
+    def scale(self, value: int) -> None:
+        self.data["scale"] = int(value) if value in SCALE_PRESETS else DEFAULT_SCALE
+        self.save()
+
+    @property
+    def height_limit(self) -> int:
+        try:
+            return max(0, int(self.data.get("height_limit", 0)))
+        except (TypeError, ValueError):
+            return 0
+
+    @height_limit.setter
+    def height_limit(self, value: int) -> None:
+        self.data["height_limit"] = max(0, int(value))
         self.save()

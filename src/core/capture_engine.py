@@ -39,16 +39,17 @@ if TYPE_CHECKING:
 # 密集 rAF 画布动画（数百 fps）会占满渲染主线程——`page.evaluate` 中 await 的
 # 续跑和 Playwright 自带超时都建立在页面主线程能调度任务之上，主线程被占满时
 # 两者同时失效，导出会卡死在固定百分比无法前进（如 PNG 的 40%）。节流到
-# ~30fps 后主线程压力骤降不再卡死，同时逐帧动效（墨滴扩散 / 粒子）仍能在
-# 数秒内播完，静态与动画导出共用此机制。
+# ~60fps 后主线程压力骤降不再卡死，同时逐帧动效（墨滴扩散 / 粒子）仍能在
+# 数秒内播完，静态与动画导出共用此机制。JS 代码含大量花括号，用占位符注入
+# 而非 f-string / % 格式化。
 _RENDER_THROTTLE_JS = """(() => {
     if (window.__wpiRafThrottled) return;
     window.__wpiRafThrottled = true;
-    const INTERVAL = %d;
+    const INTERVAL = __WPI_RAF_INTERVAL__;
     window.requestAnimationFrame = (cb) =>
         setTimeout(() => cb(performance.now()), INTERVAL);
     window.cancelAnimationFrame = (id) => clearTimeout(id);
-})();""" % RENDER_RAF_THROTTLE_MS
+})();""".replace("__WPI_RAF_INTERVAL__", str(RENDER_RAF_THROTTLE_MS))
 
 
 class CaptureEngine:
@@ -70,7 +71,7 @@ class CaptureEngine:
         device_scale: int = 1,   # 分辨率倍率（原生渲染，非超分）
         static: bool = False,    # 静态导出（PNG/PDF）：额外模拟减少动效
     ) -> CaptureEngine:
-        context, page = browser.new_page(viewport, device_scale_factor=device_scale)
+        _context, page = browser.new_page(viewport, device_scale_factor=device_scale)
         # 所有格式统一节流 rAF（消除无头模式密集动画占满主线程导致的卡死），
         # 需在页面脚本执行前注入。
         try:
@@ -269,7 +270,8 @@ class CaptureEngine:
         # 单拍优先：整页像素尺寸未超安全上限时一次拍全
         # （fixed/sticky 只画一次、无拼接），否则分块
         scale_f = max(1, int(scale or 1))
-        if not force_tiled and height_css is None and (W * scale_f) <= 15000 and (total * scale_f) <= 15000:
+        fits_limit = (W * scale_f) <= 15000 and (total * scale_f) <= 15000
+        if not force_tiled and height_css is None and fits_limit:
             return self.capture_final_frame(transparent=transparent, full_page=True)
         chunks: list[Image.Image] = []
         y = 0
@@ -369,7 +371,7 @@ class CaptureEngine:
         单次截图完成，视口宽度即导出宽度、视口高度保持目标窗口高度。
         """
         sw, sh = self.content_size()
-        out_w = width if width else sw
+        out_w = width or sw
         if height:
             self.page.set_viewport_size({"width": out_w, "height": height})
         else:
@@ -490,15 +492,13 @@ class CaptureEngine:
             vh = int(self.page.evaluate("() => window.innerHeight || 600"))
             step = max(150, int(vh * 0.85))
             total = self.content_height()
-            steps = 0
-            for y in range(0, total + 1, step):
+            for steps, y in enumerate(range(0, total + 1, step), start=1):
                 self._raise_if_cancelled(cancel_event)
                 try:
                     self.page.evaluate("(y) => window.scrollTo(0, y)", y)
                 except Exception:
                     pass
                 time.sleep(step_ms / 1000.0)
-                steps += 1
                 if steps >= SCROLL_REVEAL_MAX_STEPS:
                     break
             try:
@@ -824,7 +824,8 @@ class CaptureEngine:
                 img = img.resize((w, h), Image.LANCZOS)
             opacity = float(s.get("opacity") or 1.0)
             if opacity < 1.0:
-                a = img.split()[3].point(lambda v: int(v * opacity))
+                # lambda 立即执行,显式绑定 opacity 避免对循环变量的隐式引用
+                a = img.split()[3].point(lambda v, op=opacity: int(v * op))
                 img.putalpha(a)
                 frame.alpha_composite(img, (int(s["x"]), int(s["y"])))
             else:

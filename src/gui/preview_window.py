@@ -13,9 +13,10 @@
 from __future__ import annotations
 
 import os
+import time
 import urllib.parse
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
@@ -131,11 +132,21 @@ class PreviewWindow(QMainWindow):
                 mount = os.path.dirname(os.path.abspath(source))
                 rel = os.path.basename(source)
             srv.mount(mount)
-            import time as _time
-
             url = (srv.base_url + "/" + urllib.parse.quote(rel)
-                   + f"?wpi={int(_time.time() * 1000)}")
+                   + f"?wpi={int(time.time() * 1000)}")
         self._view.load(url)
+
+    def set_width(self, width: int) -> None:
+        """更新预览视口宽度（复用窗口切换项目 / 修改导出宽度后调用）。
+
+        只改窗口宽与目标内容宽,不动固定高度;下次 loadFinished 时校正贴合。
+        """
+        width = max(200, int(width))
+        self._width = width
+        self._pending_content_width = width
+        self._view.setFixedWidth(width)
+        self.resize(width + 40, self.PREVIEW_HEIGHT)
+        self._width_label.setText(f"{width} px")
 
     def closeEvent(self, event) -> None:
         self._view.setPage(None)

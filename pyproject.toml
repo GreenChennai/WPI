@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wpi"
-version = "3.0.8"
+version = "3.1.0"
 description = "Website Page to Image - 将前端网页渲染导出为 PNG/GIF/MP4/PDF"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,3 +26,31 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["_uireview"]
+
+[tool.ruff.lint]
+# 浏览器渲染链路（capture_engine / controller 等）里大量 try-except-pass 与
+# 宽异常捕获是刻意设计：页面 evaluate 任意一步失败都降级继续导出，由调用方
+# 兜底，故对全库豁免 BLE001 / S110 / S112。
+select = [
+    "E", "W", "F", "I", "B", "UP", "SIM", "ISC",
+    "RUF", "PL", "FURB", "DTZ",
+]
+ignore = [
+    "BLE001", "S110", "S112",      # 浏览器自动化降级路径:吞异常属刻意设计
+    "RUF001", "RUF002", "RUF003",  # 中文注释/文档字符串使用全角标点,属刻意风格
+    "PLC0415",                     # 延迟导入是启动提速的核心设计,不回置顶层
+    "SIM105", "E402", "E741",      # capture_engine 的导入顺序 / HSL 数学惯用名
+    "DTZ005",                      # 构建脚本时间戳无需时区
+    "PLR0911", "PLR0912", "PLR0915", "PLR2004", "PLR0913", "PLR0917",
+    "PLW0108",                     # Qt 信号槽的 lambda 传参属惯用法
+    "PLW0603",                     # static_server 单例用 global,属刻意设计
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 离线 UI 快照工具：开发期辅助脚本
+"tools/ui_snapshot.py" = ["ALL"]
+"src/gui/style.py" = ["E501"]  # QSS 一行一规则,不折行

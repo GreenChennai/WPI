@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import os
-import sys
 
 from PySide6.QtCore import (
     Property,
@@ -26,7 +25,15 @@ from PySide6.QtCore import (
     QUrl,
     Signal,
 )
-from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPainterPath
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -39,53 +46,64 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTabBar,
     QVBoxLayout,
     QWidget,
 )
 
-from config.presets import app_base_dir, default_workspace_dir
+from config.presets import default_workspace_dir
 from core.color_profiler import extract_palette
 from core.static_server import list_html_files, resolve_index
 from gui import tokens as T
 
 
-def _add_icon_path() -> str:
-    """「+」按钮图标（加号.svg），优先取打包/仓库 assets，兜底用户原路径。"""
-    name = "加号.svg"
-    if getattr(sys, "frozen", False):
-        meipass = getattr(sys, "_MEIPASS", app_base_dir())
-        for base in (meipass, app_base_dir()):
-            p = os.path.join(base, "assets", name)
-            if os.path.isfile(p):
-                return p
-    p = os.path.join(app_base_dir(), "assets", name)
-    if os.path.isfile(p):
-        return p
-    return r"E:\平日资料\GitHub\图标\icon\加号.svg"
+def _plus_icon() -> QIcon:
+    """「+」按钮图标:QPainter 直接绘制两段圆头线段。
 
-
-def _load_add_icon() -> QIcon:
-    """渲染加号 SVG 为图标。
-
-    采用 QSvgRenderer 直接绘制（依赖保留的 Qt6Svg 运行库），避免依赖可能被
-    打包剔除的 qsvg 图片格式插件，保证 exe 内图标仍正常显示。
+    不依赖任何外部资源(旧的 加号.svg + 硬编码盘符兜底路径在其他机器上
+    会拿到空白图标),打包与开发环境行为一致。
     """
-    path = _add_icon_path()
-    try:
-        from PySide6.QtSvg import QSvgRenderer
-        from PySide6.QtGui import QPainter as _QP, QPixmap
-        renderer = QSvgRenderer(path)
-        if renderer.isValid():
-            pm = QPixmap(20, 20)
-            pm.fill(Qt.transparent)
-            _QP(pm).render(renderer)
-            return QIcon(pm)
-    except Exception:
-        pass
-    return QIcon(path)
+    pm = QPixmap(20, 20)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(T.TEXT_SECONDARY))
+    pen.setWidthF(1.8)
+    pen.setCapStyle(Qt.RoundCap)
+    p.setPen(pen)
+    p.drawLine(5, 10, 15, 10)
+    p.drawLine(10, 5, 10, 15)
+    p.end()
+    return QIcon(pm)
+
+
+def _folder_pixmap() -> QPixmap:
+    """子目录卡片图标:QPainter 绘制的简单文件夹形状(替代 emoji 字符,
+    避免不同系统字体下表情渲染不一致)。"""
+    pm = QPixmap(48, 40)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    path = QPainterPath()
+    # 文件夹背板(含上折角)与主体,单色浅灰,样式中性
+    path.addRoundedRect(4.0, 8.0, 17.0, 9.0, 3.0, 3.0)
+    path.addRoundedRect(4.0, 12.0, 40.0, 22.0, 5.0, 5.0)
+    p.fillPath(path, QColor("#D5DDE5"))
+    p.setPen(QColor("#B9C4CF"))
+    p.drawPath(path)
+    p.end()
+    return pm
 
 _CARD_SIZE = 168  # 卡片边长（px），自适应排版按此计算列数
+
+
+def _strip_html_ext(name: str) -> str:
+    """去掉 .html / .htm 后缀作为卡片显示名。"""
+    low = name.lower()
+    if low.endswith((".html", ".htm")):
+        return name[: -len(".html")] if low.endswith(".html") else name[:-4]
+    return name
 
 
 class _PaletteTask(QRunnable):
@@ -113,14 +131,14 @@ class SwatchBox(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("swatchBox")
-        self.setFixedSize(20, 20)
+        self.setFixedSize(18, 18)
         self.setStyleSheet(
-            "border-radius: 4px; border: 1px solid rgba(0,0,0,0.08);"
+            f"border-radius: {T.RADIUS_XS}px; border: 1px solid rgba(0,0,0,0.08);"
         )
 
     def set_color(self, hex_color: str) -> None:
         self.setStyleSheet(
-            f"background: {hex_color}; border-radius: 4px;"
+            f"background: {hex_color}; border-radius: {T.RADIUS_XS}px;"
             " border: 1px solid rgba(0,0,0,0.08);"
         )
         self.setToolTip(hex_color)
@@ -215,10 +233,7 @@ class ProjectCard(_CardBase):
             # 唯一标识用文件完整路径，避免同目录多文件互相覆盖。
             self.project_dir = project_dir
             self._key = os.path.join(project_dir, entry_html)
-            display = (
-                entry_html[:-5] if entry_html.lower().endswith(".html")
-                else entry_html
-            )
+            display = _strip_html_ext(entry_html)
         else:
             self.project_dir = os.path.abspath(project_dir)
             self._key = self.project_dir
@@ -241,13 +256,16 @@ class ProjectCard(_CardBase):
         )
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setContentsMargins(12, 12, 12, 12)
         lay.setSpacing(6)
 
         self.name_label = QLabel(display)
         self.name_label.setObjectName("cardTitle")
+        # 两行高度截断 + 完整名进工具提示:长项目名不再把下方控件挤出卡片
         self.name_label.setWordWrap(True)
-        self.name_label.setAlignment(Qt.AlignCenter)
+        self.name_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        self.name_label.setFixedHeight(38)
+        self.name_label.setToolTip(display)
         lay.addWidget(self.name_label)
 
         # 入口文件：多 HTML 时用下拉框，单一文件时保持纯标签
@@ -258,7 +276,7 @@ class ProjectCard(_CardBase):
             self.export_all_check.setObjectName("cardCheck")
             self.export_all_check.setToolTip("勾选后批量导出该项目内的每一个 HTML 文件")
             self.export_all_check.toggled.connect(self._on_export_all_toggled)
-            lay.addWidget(self.export_all_check)
+            lay.addWidget(self.export_all_check, 0, Qt.AlignHCenter)
 
             self.entry_combo = QComboBox()
             self.entry_combo.setObjectName("cardEntry")
@@ -273,11 +291,12 @@ class ProjectCard(_CardBase):
             entry_label = QLabel(self.selected_html)
             entry_label.setProperty("muted", True)
             entry_label.setAlignment(Qt.AlignCenter)
-            entry_label.setToolTip("项目入口 HTML 文件")
+            entry_label.setToolTip(f"项目入口 HTML 文件:{self.selected_html}")
             lay.addWidget(entry_label)
             self.entry_label = entry_label
 
-        # 主色色卡（异步填充）
+        # 主色色卡（异步填充），置于弹性空白之上,视觉居中偏下
+        lay.addStretch(1)
         swatch_row = QHBoxLayout()
         swatch_row.setAlignment(Qt.AlignCenter)
         swatch_row.setSpacing(4)
@@ -285,21 +304,24 @@ class ProjectCard(_CardBase):
         for _ in range(4):
             sw = SwatchBox(self)
             sw.setStyleSheet(
-                "border-radius: 4px; border: 1px solid rgba(0,0,0,0.08);"
+                f"border-radius: {T.RADIUS_XS}px; border: 1px solid rgba(0,0,0,0.08);"
                 " background: rgba(0,0,0,0.04);"
             )
             self.swatches.append(sw)
             swatch_row.addWidget(sw)
         lay.addLayout(swatch_row)
+        lay.addSpacing(4)
 
         btns = QHBoxLayout()
         btns.setSpacing(6)
         btn_preview = QPushButton("预览")
         btn_preview.setObjectName("cardPrimary")
+        btn_preview.setCursor(Qt.PointingHandCursor)
         btn_preview.clicked.connect(lambda: self.previewRequested.emit(self._key))
         btns.addWidget(btn_preview, 1)
-        btn_browser = QPushButton("浏览器打开")
+        btn_browser = QPushButton("浏览器")
         btn_browser.setObjectName("cardSecondary")
+        btn_browser.setCursor(Qt.PointingHandCursor)
         btn_browser.clicked.connect(lambda: self.browserRequested.emit(self._key))
         btn_browser.setToolTip("用系统默认浏览器打开该项目（可 F12 审查元素）")
         btns.addWidget(btn_browser, 1)
@@ -348,7 +370,7 @@ class ProjectCard(_CardBase):
         return self._lerp(base, ho, self._hover)
 
     def _border_width(self) -> int:
-        return 2 if self._selected else 1 + int(round(self._hover))
+        return 2 if self._selected else 1 + round(self._hover)
 
     @staticmethod
     def _lerp(a: QColor, b: QColor, t: float) -> QColor:
@@ -392,27 +414,30 @@ class FolderCard(_CardBase):
         self.setCursor(Qt.PointingHandCursor)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(8)
+        lay.setContentsMargins(12, 14, 12, 14)
+        lay.setSpacing(6)
 
-        icon = QLabel("📁")
+        icon = QLabel()
+        icon.setPixmap(_folder_pixmap())
         icon.setAlignment(Qt.AlignCenter)
-        icon.setStyleSheet("font-size: 28px; border: none;")
         lay.addWidget(icon, 0, Qt.AlignCenter)
 
-        self.name_label = QLabel(os.path.basename(os.path.normpath(folder)))
+        self.name_label = QLabel(_strip_html_ext(os.path.basename(os.path.normpath(folder))))
         self.name_label.setObjectName("cardTitle")
         self.name_label.setWordWrap(True)
-        self.name_label.setAlignment(Qt.AlignCenter)
+        self.name_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        self.name_label.setFixedHeight(38)
+        self.name_label.setToolTip(os.path.basename(os.path.normpath(folder)))
         lay.addWidget(self.name_label, 1)
 
-        tag = QLabel("子目录 · 点击进入")
+        tag = QLabel("子目录")
         tag.setProperty("muted", True)
         tag.setAlignment(Qt.AlignCenter)
         lay.addWidget(tag)
 
         btn_enter = QPushButton("进入")
-        btn_enter.setObjectName("cardPrimary")
+        btn_enter.setObjectName("cardSecondary")
+        btn_enter.setCursor(Qt.PointingHandCursor)
         btn_enter.clicked.connect(lambda: self.entered.emit(self.folder))
         lay.addWidget(btn_enter)
 
@@ -428,7 +453,7 @@ class FolderCard(_CardBase):
         return ProjectCard._lerp(base, ho, self._hover)
 
     def _border_width(self) -> int:
-        return 1 + int(round(self._hover))
+        return 1 + round(self._hover)
 
     def mousePressEvent(self, event) -> None:
         self.entered.emit(self.folder)
@@ -475,20 +500,27 @@ class WorkspacePanel(QGroupBox):
         self._tabbar.setMovable(True)
         self._tabbar.setTabsClosable(True)
         self._tabbar.setDrawBase(False)
+        self._tabbar.setElideMode(Qt.ElideRight)   # 超长目录名截断,全名见工具提示
+        # QTabBar 默认水平 Expanding,会把布局多余宽度平摊给每个标签,
+        # 表现为「标签异常宽」;固定为自然宽度,超出 max-width 才截断
+        self._tabbar.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._tabbar.currentChanged.connect(self._on_tab_selected)
         self._tabbar.tabCloseRequested.connect(self._on_tab_close)
         self._tabbar.tabMoved.connect(self._on_tab_moved)
         self._tabbar.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tabbar.customContextMenuRequested.connect(self._on_tab_context_menu)
-        tab_row.addWidget(self._tabbar, 1)
+        tab_row.addWidget(self._tabbar, 0)
         self._add_tab_btn = QPushButton()
         self._add_tab_btn.setObjectName("tabAdd")
         self._add_tab_btn.setToolTip("添加工作目录（新建标签页）")
         self._add_tab_btn.setFixedSize(30, 30)
-        self._add_tab_btn.setIcon(_load_add_icon())
-        self._add_tab_btn.setIconSize(QSize(18, 18))
+        self._add_tab_btn.setCursor(Qt.PointingHandCursor)
+        self._add_tab_btn.setIcon(_plus_icon())
+        self._add_tab_btn.setIconSize(QSize(16, 16))
         self._add_tab_btn.clicked.connect(self.add_directory)
         tab_row.addWidget(self._add_tab_btn)
+        # 行尾弹性空隙:把布局剩余空间吸收在末尾,「+」始终紧跟标签页
+        tab_row.addStretch(1)
         root.addLayout(tab_row)
 
         # 目录地址显示在标题下方
@@ -508,17 +540,31 @@ class WorkspacePanel(QGroupBox):
         nav.addStretch(1)
         root.addLayout(nav)
 
-        # 空状态容器：纵向 + 横向居中显示提示
+        # 空状态容器：纵向 + 横向居中显示提示与「添加工作目录」入口
         self._empty_container = QWidget()
         self._empty_container.setObjectName("emptyBox")
         self._empty_layout = QVBoxLayout(self._empty_container)
         self._empty_layout.setContentsMargins(0, 0, 0, 0)
+        self._empty_layout.setSpacing(6)
         self._empty_layout.addStretch(1)
-        self.empty_label = QLabel("无可用项目")
-        self.empty_label.setObjectName("emptyTitle")  # 字号加大
+        self.empty_label = QLabel("此目录下没有可导出的网页项目")
+        self.empty_label.setObjectName("emptyTitle")
         self.empty_label.setWordWrap(True)
         self.empty_label.setAlignment(Qt.AlignCenter)
-        self._empty_layout.addWidget(self.empty_label, 0, Qt.AlignHCenter | Qt.AlignVCenter)
+        self._empty_layout.addWidget(self.empty_label, 0, Qt.AlignHCenter)
+        self.empty_hint = QLabel(
+            "将包含 index.html 的项目文件夹放入工作目录，\n或添加其他工作目录标签页。"
+        )
+        self.empty_hint.setObjectName("emptyHint")
+        self.empty_hint.setAlignment(Qt.AlignCenter)
+        self._empty_layout.addWidget(self.empty_hint, 0, Qt.AlignHCenter)
+        self._empty_layout.addSpacing(8)
+        self.empty_add_btn = QPushButton("添加工作目录")
+        self.empty_add_btn.setCursor(Qt.PointingHandCursor)
+        self.empty_add_btn.clicked.connect(self.add_directory)
+        self._empty_layout.addWidget(
+            self.empty_add_btn, 0, Qt.AlignHCenter
+        )
         self._empty_layout.addStretch(1)
         self._empty_container.setVisible(False)
         root.addWidget(self._empty_container, 1)
@@ -533,15 +579,7 @@ class WorkspacePanel(QGroupBox):
         # 水平居中，消除「最后一列右侧贴着滚动条」的留白观感
         self._grid.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
         self._scroll.setWidget(self._grid_host)
-        # 工作目录背景统一为 SURFACE(#F6F8FA)
-        from PySide6.QtGui import QColor, QPalette
-
-        self.setAutoFillBackground(False)
-        for w in (self._scroll, self._scroll.viewport(), self._grid_host, self._empty_container):
-            pal = QPalette()
-            pal.setColor(QPalette.Window, QColor(T.SURFACE))
-            w.setAutoFillBackground(True)
-            w.setPalette(pal)
+        # 画布灰底由 QSS 的 #workdirBox 透明规则透出,无需逐控件调色板
         root.addWidget(self._scroll, 1)
 
         self._pool = QThreadPool.globalInstance()
@@ -651,25 +689,6 @@ class WorkspacePanel(QGroupBox):
                 self._tabbar.setTabButton(i, QTabBar.RightSide, None)
         self._tabbar.setCurrentIndex(self._current)
         self._tabbar.blockSignals(False)
-        # 标签宽度自适应（布局完成后按实际可用宽度压缩）
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(0, self._adjust_tab_widths)
-
-    def _adjust_tab_widths(self) -> None:
-        """标签默认 160×30；若总宽超出可用宽度则压缩（下限 48）以适配 UI。"""
-        count = self._tabbar.count()
-        if count == 0:
-            return
-        avail = self._tabbar.width()
-        if avail <= 0:
-            return
-        target = 160
-        if count * 160 > avail:
-            target = max(48, avail // count)
-        self._tabbar.setStyleSheet(
-            f"QTabBar#workdirTabs::tab {{ min-width: {target}px; "
-            f"max-width: {target}px; height: 30px; }}"
-        )
 
     def _on_tab_selected(self, index: int) -> None:
         if 0 <= index < len(self._tabs) and index != self._current:
@@ -815,12 +834,6 @@ class WorkspacePanel(QGroupBox):
             if w is not None:
                 w.hide()  # 先隐藏再在下方 addWidget，避免重排抖动
 
-        # 可用宽度 = 滚动区域视口宽度 - 面板内边距
-        avail = max(200, self._scroll.viewport().width()
-                    - T.SPACE_LG * 2 - self._grid.spacing())
-        card_w = _CARD_SIZE + self._grid.spacing()
-        cols = max(1, (avail + self._grid.spacing()) // card_w)
-
         row = 0
         col = 0
         for path in self._entries:
@@ -833,13 +846,11 @@ class WorkspacePanel(QGroupBox):
             if col >= cols:
                 col = 0
                 row += 1
-        self._grid.setColumnStretch(cols, 0)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if self._grid.count() and self._entries and self.isVisible():
             self._reflow()
-        self._adjust_tab_widths()
 
     # ------------------------------------------------------------- internal
     def current_dir(self) -> str:
@@ -885,7 +896,8 @@ class WorkspacePanel(QGroupBox):
                     projects.append(full)         # 普通目录项目
                 else:
                     folders.append(full)          # 普通子目录
-            elif is_pure and name.lower().endswith((".html", ".htm")) and name.lower() != "pure.html":
+            elif (is_pure and name.lower().endswith((".html", ".htm"))
+                  and name.lower() != "pure.html"):
                 projects.append((workdir, name))  # pure 目录内的单文件项目
         return projects, folders
 

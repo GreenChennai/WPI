@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass, field
@@ -79,7 +80,7 @@ def playback_durations(times: list[float], fps: int) -> tuple[list[int], float]:
         return [d] * n, float(target_fps)
     last = intervals[-1] if intervals else avg
     durs = []
-    for iv in intervals + [last]:
+    for iv in [*intervals, last]:
         ms = int(round(iv * 1000.0 / 10.0) * 10)
         ms = max(ANIMATION_FRAME_DURATION_MIN,
                  min(ANIMATION_FRAME_DURATION_MAX, ms))
@@ -98,10 +99,9 @@ def build_url(source: str, server) -> str:
 
         index = resolve_index(directory)
         if index:
-            url = server.base_url + "/" + index
+            url = server.base_url + "/" + urllib.parse.quote(index)
         else:
             raise FileNotFoundError(f"所选目录中未找到任何 HTML 文件: {directory}")
-        server.directory = directory
     return url
 
 
@@ -287,7 +287,7 @@ def run_export_sync(params: ExportParams, progress=None, status=None, cancel_eve
                 result["height_locked"] = True
             elif params.full_page:
                 _status("测量并导出整页内容…")
-                actual_w, _actual_h = engine.prepare_full_page(params.width, None)
+                _out_w, _actual_h = engine.prepare_full_page(params.width, None)
                 # 高倍率（4X/8X）下 captureBeyondViewport 单拍受 Chromium 最大
                 # 截图尺寸限制会截断组件 → 改分块滚动截图 + 拼接；capture_highres
                 # 内部对未超上限的页面仍单拍优先。
@@ -378,8 +378,6 @@ def run_batch_sync(
     **不强制中止**——任务量大 / 机器性能弱时属正常慢，强行退出会白白丢失
     已完成部分，改为提醒 + 继续等待，由用户点击「取消任务」主动停止。
     """
-    import threading
-
     from config.presets import BATCH_ITEM_TIMEOUT_SECONDS
 
     total = len(params_list)
@@ -393,12 +391,14 @@ def run_batch_sync(
 
         box: dict = {"res": None, "exc": None}
 
-        def _item_worker() -> None:
+        # 经线程执行的闭包按默认参数绑定循环变量，避免误绑定到下一轮迭代
+        def _item_worker(box=box, params=params, i=i, total=total) -> None:
             try:
                 box["res"] = run_export_sync(
                     params,
                     progress=(
-                        lambda n: progress(int((i + n / 100.0) / total * 100))
+                        lambda n, _i=i, _t=total: progress(
+                            int((_i + n / 100.0) / _t * 100))
                         if progress is not None else None
                     ),
                     status=status,
@@ -475,7 +475,7 @@ try:  # GUI 场景才依赖 PySide6；CLI/冒烟测试可脱离 GUI 运行
                     self.result.emit(res)
                 except ExportCancelledError:
                     self.cancelled.emit()
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     try:
                         import traceback
 
@@ -498,7 +498,7 @@ try:  # GUI 场景才依赖 PySide6；CLI/冒烟测试可脱离 GUI 运行
                 self.result.emit(res)
             except ExportCancelledError:
                 self.cancelled.emit()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 try:
                     import traceback
 

@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from typing import TYPE_CHECKING
 
@@ -20,13 +21,22 @@ from playwright.sync_api import sync_playwright
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, BrowserContext, Page
 
+# Windows 固定安装路径（注册表之外的兜底探测）
 EDGE_PATHS = (
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 )
 CHROME_PATHS = (
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+)
+# Linux / 便携安装：按可执行名在 PATH 上探测（channel 模式不可用时以
+# executable_path 直接启动）
+POSIX_EXECUTABLES = (
+    "google-chrome-stable", "google-chrome", "chromium", "chromium-browser",
+    "microsoft-edge", "microsoft-edge-stable", "msedge",
 )
 
 
@@ -49,13 +59,22 @@ class BrowserUnavailableError(RuntimeError):
 
 
 def detect_browser_channel() -> str | None:
-    """探测系统已安装的浏览器通道：优先 Edge，其次 Chrome。"""
+    """探测系统已安装的浏览器通道：优先 Edge，其次 Chrome（含 macOS 路径）。"""
     for exe in EDGE_PATHS:
         if os.path.isfile(exe):
             return "msedge"
     for exe in CHROME_PATHS:
         if os.path.isfile(exe):
             return "chrome"
+    return None
+
+
+def detect_posix_executable() -> str | None:
+    """Linux 等无固定安装路径的平台：在 PATH 上找可用的 Chromium 系可执行文件。"""
+    for name in POSIX_EXECUTABLES:
+        found = shutil.which(name)
+        if found:
+            return found
     return None
 
 
@@ -69,6 +88,10 @@ class BrowserHost:
         self.channel = channel or os.environ.get("WPI_BROWSER_CHANNEL") or detect_browser_channel()
         self.headless = headless
         self.use_profile = use_profile
+        # channel 探测失败时的兜底：Linux 等平台按可执行文件名启动
+        self.executable: str | None = None
+        if self.channel is None:
+            self.executable = detect_posix_executable()
         self._pw = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -78,7 +101,7 @@ class BrowserHost:
         device_scale_factor: float = 1,
         viewport: tuple[int, int] | None = None,
     ) -> BrowserHost:
-        if not self.channel:
+        if not self.channel and not self.executable:
             raise BrowserUnavailableError(
                 "未检测到系统浏览器内核（Microsoft Edge / Google Chrome）。\n"
                 "本软件不内置浏览器，请安装其中任意一个后重试。"
@@ -89,46 +112,57 @@ class BrowserHost:
             "--no-first-run",
             "--no-default-browser-check",
         ]
+        channel_or_exec: dict = (
+            {"channel": self.channel} if self.channel
+            else {"executable_path": self.executable}
+        )
         try:
             if self.use_profile:
                 # 持久化用户目录：登录态 / cookies 跨导出保留，隔离于系统浏览器。
                 # 隐藏自动化标记，降低目标站点的人机校验误判。
                 self._context = self._pw.chromium.launch_persistent_context(
                     user_data_dir=profile_dir(),
-                    channel=self.channel,
                     headless=self.headless,
                     viewport=(
                         {"width": viewport[0], "height": viewport[1]}
                         if viewport else None
                     ),
                     device_scale_factor=device_scale_factor,
-                    args=args + ["--disable-blink-features=AutomationControlled"],
+                    args=[*args, "--disable-blink-features=AutomationControlled"],
                     ignore_default_args=["--enable-automation"],
+                    **channel_or_exec,
                 )
             else:
                 self._browser = self._pw.chromium.launch(
-                    channel=self.channel,
                     headless=self.headless,
                     args=args,
+                    **channel_or_exec,
                 )
         except PlaywrightError as exc:
             # 持久化目录被占用（上次导出异常退出残留浏览器进程）时降级为
-            # 临时上下文，保证导出仍可用（仅丢失登录态）
+            # 临时上下文，保证导出仍可用（仅丢失登录态）。
+            # 降级上下文同样带 viewport / device_scale_factor，否则高倍率
+            # 导出会静默按 1X 输出。
             if self.use_profile:
                 try:
                     self._context = self._pw.chromium.launch_persistent_context(
                         user_data_dir=os.path.join(tempfile.gettempdir(), "WPI-export-fallback"),
-                        channel=self.channel,
                         headless=self.headless,
+                        viewport=(
+                            {"width": viewport[0], "height": viewport[1]}
+                            if viewport else None
+                        ),
+                        device_scale_factor=device_scale_factor,
                         args=args,
                         ignore_default_args=["--enable-automation"],
+                        **channel_or_exec,
                     )
                     return self
                 except Exception:
                     pass
             self.close()
             raise BrowserUnavailableError(
-                f"启动系统浏览器内核失败（{self.channel}）: {exc}"
+                f"启动系统浏览器内核失败（{self.channel or self.executable}）: {exc}"
             ) from exc
         return self
 

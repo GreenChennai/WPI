@@ -139,6 +139,11 @@ class ExportPanel(QWidget):
     def get_format(self) -> str:
         return self.format_combo.currentText()
 
+    def set_format(self, fmt: str) -> None:
+        """外部设置导出格式（设置记忆回填等），非法值忽略。"""
+        if fmt in FORMATS and fmt != self.format_combo.currentText():
+            self.format_combo.setCurrentText(fmt)
+
     def get_output_path(self) -> str:
         return self.output_edit.text().strip()
 
@@ -155,12 +160,11 @@ class ExportPanel(QWidget):
         }
 
     def set_output_suggestion(self, base_dir: str, name: str) -> None:
-        """基于源路径与当前格式预填输出路径。"""
+        """基于源路径与当前格式预填输出路径（用户已填写时不覆盖）。"""
         if self.output_edit.text().strip():
             return
         fmt = self.format_combo.currentText()
         ext = FILE_EXTENSIONS[fmt]
-        self._suggest_dir = base_dir
         self.output_edit.setText(os.path.join(base_dir, name + ext))
 
     def set_output_path(self, path: str) -> None:
@@ -218,7 +222,7 @@ class ExportPanel(QWidget):
         fmt = self.format_combo.currentText()
         ext = FILE_EXTENSIONS[fmt]
         current = self.output_edit.text().strip()
-        start = current if current else os.path.expanduser("~")
+        start = current or os.path.expanduser("~")
         path, _ = QFileDialog.getSaveFileName(
             self, "选择导出路径", start, f"{fmt} 文件 (*{ext})"
         )

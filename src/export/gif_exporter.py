@@ -58,7 +58,6 @@ class GIFExporter:
         else:
             self._write_pillow(frames, path, fps, loop, durations)
         return {"encoder": used, "frames": len(frames)}
-
     @staticmethod
     def _write_pillow(
         frames: list[Image.Image],
@@ -83,8 +82,12 @@ class GIFExporter:
             disposal=2,
         )
 
-    @staticmethod
-    def _write_ffmpeg(frames: list[Image.Image], path: str, fps: float, loop: int) -> None:
+    def _write_ffmpeg(
+        self, frames: list[Image.Image], path: str, fps: float, loop: int
+    ) -> None:
+        """FFmpeg 调色板编码。使用 __init__ 已解析好的 self.ffmpeg 路径——
+        若在此处重新 find_ffmpeg()（不带 extra_dirs），打包版随附在 exe
+        同目录的 ffmpeg.exe（不在 PATH 上）会找不到,GIF 将静默回退 Pillow。"""
         with tempfile.TemporaryDirectory(prefix="wpi_gif_") as td:
             for i, frame in enumerate(frames, start=1):
                 rgba = frame.convert("RGBA")
@@ -92,12 +95,12 @@ class GIFExporter:
                 bg.paste(rgba, mask=rgba.getchannel("A"))
                 bg.save(os.path.join(td, f"frame_{i:05d}.png"))
             cmd = [
-                find_ffmpeg(), "-y", "-loglevel", "error",
+                self.ffmpeg, "-y", "-loglevel", "error",
                 "-framerate", str(round(float(fps), 3)),  # 支持小数实际帧率
                 "-i", os.path.join(td, "frame_%05d.png"),
                 "-filter_complex",
-                "[0:v]split[x][y];[x]palettegen=stats_mode=diff[p];"
-                "[y][p]paletteuse=dither=sierra2_4a",
+                ("[0:v]split[x][y];[x]palettegen=stats_mode=diff[p];"
+                 "[y][p]paletteuse=dither=sierra2_4a"),
                 "-loop", str(loop),
                 path,
             ]

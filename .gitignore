@@ -30,3 +30,4 @@ WPI_settings.json
 
 # Local tests (kept only on the developer machine, not synced to GitHub)
 tests/
+_uireview/

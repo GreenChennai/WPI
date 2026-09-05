@@ -42,28 +42,27 @@ class PDFExporter:
                 print_background=True,
                 prefer_css_page_size=False,
             )
-        else:  # Fit：按目标像素等宽输出
-            if height_px > MAX_PAGE_H_PX:
-                # 超长内容分页输出——CSS @page size 定宽定高，
-                # Chromium 将内容流式分到多页（每页 ≤ 上限高），Edge 可正常查看
-                page_h_mm = round(px_to_mm(MAX_PAGE_H_PX), 2)
-                page.add_style_tag(
-                    content=(
-                        f"@page {{ size: {width_mm}mm {page_h_mm}mm; margin: 0; }}"
-                    )
+        elif height_px > MAX_PAGE_H_PX:
+            # 超长内容分页输出——CSS @page size 定宽定高，
+            # Chromium 将内容流式分到多页（每页 ≤ 上限高），Edge 可正常查看
+            page_h_mm = round(px_to_mm(MAX_PAGE_H_PX), 2)
+            page.add_style_tag(
+                content=(
+                    f"@page {{ size: {width_mm}mm {page_h_mm}mm; margin: 0; }}"
                 )
-                page.pdf(
-                    path=path,
-                    print_background=True,
-                    prefer_css_page_size=True,
-                )
-            else:
-                page.add_style_tag(content="@page { margin: 0; }")
-                page.pdf(
-                    path=path,
-                    format=None,
-                    width=f"{width_mm}mm",
-                    height=f"{round(height_mm * 1.002 + 1.0, 2)}mm",
-                    print_background=True,
-                    prefer_css_page_size=False,
-                )
+            )
+            page.pdf(
+                path=path,
+                print_background=True,
+                prefer_css_page_size=True,
+            )
+        else:
+            page.add_style_tag(content="@page { margin: 0; }")
+            page.pdf(
+                path=path,
+                format=None,
+                width=f"{width_mm}mm",
+                height=f"{round(height_mm * 1.002 + 1.0, 2)}mm",
+                print_background=True,
+                prefer_css_page_size=False,
+            )

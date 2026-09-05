@@ -74,7 +74,7 @@ def resolve_index(directory: str) -> str | None:
     for name in INDEX_FILENAMES:
         if name in names:
             return name
-    return sorted(names)[0]
+    return min(names)
 
 
 class StaticServer:

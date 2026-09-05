@@ -1,4 +1,9 @@
-"""全局 QSS 构建器：将 MomentShift 令牌风格应用到本应用的 QtWidgets 控件。"""
+"""全局 QSS 构建器:把 tokens 令牌应用到 QtWidgets 控件。
+
+布局语言:左侧为画布上的卡片流(无外框),右侧为「标题在内」的白色
+分组卡片;控件圆角统一 6px、卡片 12px;强调色唯一(绿),蓝色仅用于
+多选语义;进度条为 6px 细条(文字由界面标签单独显示,避免压色块)。
+"""
 
 from __future__ import annotations
 
@@ -11,8 +16,8 @@ from . import tokens as T
 def _arrow_path(name: str) -> str:
     """返回下拉箭头 PNG 资源的绝对路径。
 
-    QSS image:url() 对绝对路径可靠、对 base64 data URI 不可靠，故用真实文件。
-    开发模式取 src/gui/assets；PyInstaller 单文件模式取打包内的 gui/assets。
+    QSS image:url() 对绝对路径可靠、对 base64 data URI 不可靠,故用真实文件。
+    开发模式取 src/gui/assets;PyInstaller 单文件模式取打包内的 gui/assets。
     """
     if getattr(sys, "frozen", False):
         base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
@@ -34,22 +39,24 @@ QMainWindow, QDialog {{ background: {T.SURFACE}; }}
 QLabel {{ color: {T.TEXT_STRONG}; background: transparent; }}
 QLabel[secondary="true"] {{ color: {T.TEXT_SECONDARY}; }}
 QLabel[muted="true"] {{ color: {T.TEXT_MUTED}; }}
-QLabel#panelTitle {{ font-size: {T.FONT_SIZE_TITLE}px; font-weight: 700; color: {T.TEXT_TITLE}; }}
 
-/* ---------- 组卡片（复用 MomentShift ThemedCard 外观） ---------- */
+/* ---------- 分组卡片:标题位于卡片内部,不再骑在边框线上 ---------- */
 QGroupBox {{
     background: {T.WHITE};
     border: 1px solid {T.BORDER};
-    border-radius: {T.CARD_RADIUS}px;
-    margin-top: 10px;
-    padding-top: 16px;
+    border-radius: {T.RADIUS_LG}px;
+    margin-top: 0px;
+    padding: 32px 14px 14px 14px;
+    font-weight: normal;
 }}
 QGroupBox::title {{
-    subcontrol-origin: margin;
-    left: {T.SPACE_MD}px;
-    padding: 0 4px;
-    color: {T.TEXT_SECONDARY};
-    font-size: 12px;
+    subcontrol-origin: padding;
+    subcontrol-position: top left;
+    left: 13px;
+    top: 9px;
+    padding: 0 1px;
+    color: {T.TEXT_STRONG};
+    font-size: {T.FONT_SIZE_BODY}px;
     font-weight: 600;
 }}
 
@@ -57,8 +64,8 @@ QGroupBox::title {{
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
     background: {T.WHITE};
     border: 1px solid {T.INPUT_BORDER};
-    border-radius: {T.INPUT_RADIUS}px;
-    padding: 4px 8px;
+    border-radius: {T.RADIUS_SM}px;
+    padding: 4px 9px;
     selection-background-color: {T.ACCENT};
 }}
 QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {{
@@ -68,12 +75,15 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
     border-color: {T.ACCENT};
 }}
 QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {{
-    background: {T.SURFACE};
+    background: {T.SURFACE_ALT};
     color: {T.TEXT_PLACEHOLDER};
 }}
-QLineEdit:read-only {{ background: {T.SURFACE}; }}
+QLineEdit:read-only {{
+    background: {T.SURFACE_ALT};
+    color: {T.TEXT_SECONDARY};
+}}
 QComboBox::drop-down {{ border: none; width: 22px; subcontrol-origin: padding; subcontrol-position: top right; }}
-QComboBox::drop-down:hover {{ background: {T.SURFACE_HOVER}; border-top-right-radius: {T.INPUT_RADIUS}px; border-bottom-right-radius: {T.INPUT_RADIUS}px; }}
+QComboBox::drop-down:hover {{ background: {T.SURFACE_HOVER}; border-top-right-radius: {T.RADIUS_SM}px; border-bottom-right-radius: {T.RADIUS_SM}px; }}
 QComboBox::down-arrow {{
     image: url({arrow});
     width: 12px; height: 12px;
@@ -90,101 +100,103 @@ QComboBox QAbstractItemView {{
 }}
 QComboBox QAbstractItemView::item {{
     padding: 5px 8px;
-    border-radius: {T.RADIUS_SM}px;
+    border-radius: {T.RADIUS_XS}px;
 }}
 
-/* ---------- 按钮 ---------- */
+/* ---------- 按钮(默认 / 主 / 幽灵 / 危险 / 琥珀) ---------- */
 QPushButton {{
     background: {T.WHITE};
     color: {T.TEXT_STRONG};
     border: 1px solid {T.BORDER};
-    border-radius: {T.RADIUS_MD}px;
-    padding: 6px 16px;
+    border-radius: {T.RADIUS_SM}px;
+    padding: 5px 14px;
 }}
 QPushButton:hover {{ background: {T.SURFACE_HOVER}; border-color: {T.BORDER_HOVER}; }}
 QPushButton:pressed {{ background: {T.SURFACE_PRESS}; }}
-QPushButton:focus {{ border-color: {T.ACCENT}; }}   /* v2.7.0：键盘焦点可见 */
-QPushButton:disabled {{ color: {T.TEXT_PLACEHOLDER}; background: {T.SURFACE}; }}
+QPushButton:focus {{ border-color: {T.ACCENT}; }}
+QPushButton:disabled {{ color: {T.TEXT_PLACEHOLDER}; background: {T.SURFACE_ALT}; }}
 
 QPushButton#primaryBtn {{
     background: {T.ACCENT};
     color: #FFFFFF;
     border: none;
-    border-radius: {T.RADIUS_MD}px;
-    padding: 7px 20px;
+    border-radius: {T.RADIUS_SM}px;
+    padding: 6px 20px;
     font-weight: 600;
 }}
 QPushButton#primaryBtn:hover {{ background: {T.ACCENT_HOVER}; }}
 QPushButton#primaryBtn:pressed {{ background: {T.ACCENT_PRESS}; }}
-QPushButton#primaryBtn:disabled {{ background: {T.PROGRESS_TRACK}; color: {T.TEXT_PLACEHOLDER}; }}
+QPushButton#primaryBtn:disabled {{ background: {T.TRACK}; color: {T.TEXT_PLACEHOLDER}; }}
 QPushButton#primaryBtn:focus {{
     border: 1px solid {T.ACCENT_SOFT_STRONG};
-    padding: 6px 19px;   /* 净尺寸保持不变 */
+    padding: 5px 19px;   /* 净尺寸保持不变 */
 }}
 
 QPushButton#ghostBtn {{
     background: transparent;
     border: 1px solid {T.BORDER};
-    border-radius: {T.RADIUS_MD}px;
+    border-radius: {T.RADIUS_SM}px;
     padding: 5px 14px;
 }}
-QPushButton#ghostBtn:hover {{ background: {T.SURFACE_HOVER}; border-color: {T.BORDER_HOVER}; }}
+QPushButton#ghostBtn:hover {{ background: {T.WHITE}; border-color: {T.BORDER_HOVER}; }}
 QPushButton#ghostBtn:focus {{ border-color: {T.ACCENT}; }}
 
-/* 「取消任务」红色危险按钮 */
 QPushButton#dangerBtn {{
     background: {T.DANGER_STRONG};
     color: #FFFFFF;
     border: none;
-    border-radius: {T.RADIUS_MD}px;
+    border-radius: {T.RADIUS_SM}px;
     padding: 6px 16px;
     font-weight: 600;
 }}
 QPushButton#dangerBtn:hover {{ background: {T.DANGER_STRONG_HOVER}; }}
 QPushButton#dangerBtn:pressed {{ background: {T.DANGER_STRONG_PRESS}; }}
-QPushButton#dangerBtn:disabled {{ background: {T.SURFACE_PRESS}; color: {T.TEXT_PLACEHOLDER}; }}
+QPushButton#dangerBtn:disabled {{ background: {T.TRACK}; color: {T.TEXT_PLACEHOLDER}; }}
 QPushButton#dangerBtn:focus {{
     border: 1px solid rgba(255, 255, 255, 0.65);
     padding: 5px 15px;   /* 净尺寸保持不变 */
 }}
 
-/* 「更换目录…」黄色按钮 */
+/* 「添加工作目录」琥珀按钮 */
 QPushButton#warningBtn {{
     background: {T.WARNING};
     color: #FFFFFF;
     border: none;
-    border-radius: {T.RADIUS_MD}px;
+    border-radius: {T.RADIUS_SM}px;
     padding: 6px 16px;
     font-weight: 600;
 }}
 QPushButton#warningBtn:hover {{ background: {T.WARNING_HOVER}; }}
 QPushButton#warningBtn:pressed {{ background: {T.WARNING_PRESS}; }}
-QPushButton#warningBtn:disabled {{ background: {T.SURFACE_PRESS}; color: {T.TEXT_PLACEHOLDER}; }}
+QPushButton#warningBtn:disabled {{ background: {T.TRACK}; color: {T.TEXT_PLACEHOLDER}; }}
 QPushButton#warningBtn:focus {{
     border: 1px solid rgba(255, 255, 255, 0.65);
     padding: 5px 15px;   /* 净尺寸保持不变 */
 }}
 
-/* ---------- 工作目录标签页（多目录管理） ---------- */
+/* ---------- 工作目录标签页(画布上的分段式标签,自然宽度+超长截断) ---------- */
 QTabBar#workdirTabs {{
     qproperty-drawBase: 0;
+    background: transparent;
 }}
 QTabBar#workdirTabs::tab {{
     background: transparent;
     color: {T.TEXT_SECONDARY};
-    border: 1px solid {T.BORDER};
-    border-bottom: none;
-    border-top-left-radius: {T.RADIUS_SM}px;
-    border-top-right-radius: {T.RADIUS_SM}px;
-    padding: 2px 8px;
-    margin-right: 2px;
+    border: 1px solid transparent;
+    border-radius: {T.RADIUS_SM}px;
+    padding: 4px 14px;
+    margin-right: 4px;
+    min-width: 0px;
+    max-width: 190px;
 }}
 QTabBar#workdirTabs::tab:selected {{
-    background: {T.SURFACE};
+    background: {T.WHITE};
+    border: 1px solid {T.BORDER};
     color: {T.TEXT_STRONG};
     font-weight: 600;
 }}
 QTabBar#workdirTabs::tab:hover:!selected {{
+    background: {T.ACCENT_SOFT_FAINT};
     color: {T.TEXT_STRONG};
 }}
 QTabBar#workdirTabs::close-button {{
@@ -193,32 +205,25 @@ QTabBar#workdirTabs::close-button {{
     margin: 0 2px 0 0;
 }}
 QPushButton#tabAdd {{
-    background: {T.SURFACE_PRESS};
+    background: {T.WHITE};
     color: {T.TEXT_SECONDARY};
     border: 1px solid {T.BORDER};
     border-radius: {T.RADIUS_SM}px;
 }}
 QPushButton#tabAdd:hover {{
-    background: {T.SURFACE};
+    background: {T.SURFACE_HOVER};
     color: {T.TEXT_STRONG};
+    border-color: {T.BORDER_HOVER};
 }}
 
-/* ---------- 工作目录项目卡片（背景/边框由 paintEvent 自绘，QSS 只留透明） ---------- */
+/* ---------- 工作目录项目卡片(背景/边框由 paintEvent 自绘,QSS 只留透明) ---------- */
 #projectCard, #folderCard {{
-    background: transparent;
-    border: none;
-}}
-#projectCard:hover, #folderCard:hover {{
-    background: transparent;
-    border: none;
-}}
-#projectCard[selected="true"] {{
     background: transparent;
     border: none;
 }}
 #cardTitle {{
     font-size: {T.FONT_SIZE_BODY}px;
-    font-weight: 700;
+    font-weight: 600;
     color: {T.TEXT_STRONG};
 }}
 QPushButton#cardPrimary {{
@@ -226,26 +231,31 @@ QPushButton#cardPrimary {{
     color: #FFFFFF;
     border: none;
     border-radius: {T.RADIUS_SM}px;
-    padding: 5px 8px;
+    padding: 4px 8px;
     font-weight: 600;
 }}
 QPushButton#cardPrimary:hover {{ background: {T.ACCENT_HOVER}; }}
+QPushButton#cardPrimary:pressed {{ background: {T.ACCENT_PRESS}; }}
+QPushButton#cardPrimary:disabled {{ background: {T.TRACK}; color: {T.TEXT_PLACEHOLDER}; }}
 QPushButton#cardSecondary {{
-    background: transparent;
+    background: {T.WHITE};
+    color: {T.TEXT_STRONG};
     border: 1px solid {T.BORDER};
     border-radius: {T.RADIUS_SM}px;
-    padding: 5px 8px;
+    padding: 4px 8px;
 }}
-QPushButton#cardSecondary:hover {{ background: {T.SURFACE_HOVER}; }}
+QPushButton#cardSecondary:hover {{ background: {T.SURFACE_HOVER}; border-color: {T.BORDER_HOVER}; }}
+QPushButton#cardSecondary:pressed {{ background: {T.SURFACE_PRESS}; }}
 
-/* 项目卡片内入口 HTML 下拉框（紧凑样式） */
+/* 项目卡片内入口 HTML 下拉框(紧凑样式) */
 QComboBox#cardEntry {{
     background: {T.WHITE};
     border: 1px solid {T.INPUT_BORDER};
     border-radius: {T.RADIUS_SM}px;
-    padding: 2px 4px;
-    font-size: 11px;
+    padding: 2px 5px;
+    font-size: {T.FONT_SIZE_SM}px;
 }}
+QComboBox#cardEntry:hover {{ border-color: {T.BORDER_HOVER}; }}
 QComboBox#cardEntry:focus {{ border-color: {T.ACCENT}; }}
 QComboBox#cardEntry::drop-down {{ border: none; width: 16px; subcontrol-origin: padding; subcontrol-position: top right; }}
 QComboBox#cardEntry::down-arrow {{
@@ -254,28 +264,36 @@ QComboBox#cardEntry::down-arrow {{
     subcontrol-origin: padding; subcontrol-position: right center;
 }}
 QComboBox#cardEntry QAbstractItemView {{
-    font-size: 12px;
+    font-size: {T.FONT_SIZE_SM}px;
     border-radius: {T.RADIUS_SM}px;
 }}
 
-/* ---------- 子目录卡片 / 主色色卡 ---------- */
-#workdirBox {{ background: {T.SURFACE}; }}
+/* ---------- 子目录卡片 / 色卡 ---------- */
+#workdirBox {{ background: transparent; border: none; }}
 #workdirBox QScrollArea, #workdirBox QScrollArea > QWidget > QWidget {{
     background: transparent;
 }}
-#swatchBox {{ border-radius: 4px; }}
+#swatchBox {{ border-radius: {T.RADIUS_XS}px; }}
 
 /* ---------- 启动进度遮罩 ---------- */
 #bootTitle {{
-    font-size: 20px;
-    font-weight: 700;
+    font-size: 21px;
+    font-weight: 600;
     color: {T.TEXT_TITLE};
 }}
+#bootSubtitle {{
+    font-size: {T.FONT_SIZE_SM}px;
+    color: {T.TEXT_MUTED};
+}}
 
-/* 空工作目录提示（字号加大，仍居中） */
+/* 空工作目录提示 */
 QLabel#emptyTitle {{
-    font-size: 17px;
+    font-size: {T.FONT_SIZE_TITLE}px;
     font-weight: 600;
+    color: {T.TEXT_STRONG};
+}}
+QLabel#emptyHint {{
+    font-size: {T.FONT_SIZE_SM}px;
     color: {T.TEXT_SECONDARY};
 }}
 
@@ -290,40 +308,33 @@ QCheckBox::indicator {{
 QCheckBox::indicator:hover {{ border-color: {T.BORDER_HOVER}; }}
 QCheckBox::indicator:checked {{ background: {T.ACCENT}; border-color: {T.ACCENT}; }}
 QCheckBox::indicator:checked:hover {{ background: {T.ACCENT_HOVER}; border-color: {T.ACCENT_HOVER}; }}
-QCheckBox::indicator:disabled {{ background: {T.SURFACE}; border-color: {T.BORDER}; }}
+QCheckBox::indicator:disabled {{ background: {T.SURFACE_ALT}; border-color: {T.BORDER}; }}
 
-/* ---------- 进度条 ---------- */
+/* ---------- 进度条:6px 细条,无内嵌文字(百分比由旁边标签显示) ---------- */
 QProgressBar {{
-    background: {T.PROGRESS_TRACK};
+    background: {T.TRACK};
     border: none;
-    border-radius: 6px;
-    height: 16px;
-    text-align: center;
-    color: #000000;  /* 百分比文字黑色，保证清晰 */
-    font-size: 11px;
-    font-weight: 600;
+    border-radius: {T.PROGRESS_RADIUS}px;
+    color: transparent;
+    font-size: 1px;
 }}
-QProgressBar::chunk {{ background: {T.PROGRESS_CHUNK}; border-radius: 6px; }}
+QProgressBar::chunk {{ background: {T.PROGRESS_CHUNK}; border-radius: {T.PROGRESS_RADIUS}px; }}
 
 /* ---------- 左右分栏拖拽条 ---------- */
 QSplitter::handle {{ background: transparent; }}
 QSplitter::handle:hover {{ background: {T.ACCENT_SOFT}; }}
-QSplitter::handle:horizontal {{ width: 6px; border-radius: 3px; }}   /* v2.7.0：可拖拽提示 */
-QSplitter::handle:vertical {{ height: 6px; border-radius: 3px; }}
+QSplitter::handle:horizontal {{ width: 5px; border-radius: 2px; }}
+QSplitter::handle:vertical {{ height: 5px; border-radius: 2px; }}
 
 /* ---------- 滚动条 ---------- */
-QScrollBar:vertical {{
-    background: transparent; width: 10px; margin: 0;
-}}
+QScrollBar:vertical {{ background: transparent; width: 8px; margin: 0; }}
 QScrollBar::handle:vertical {{
-    background: {T.SCROLLBAR_HANDLE}; border-radius: 4px; min-height: 30px;
+    background: {T.SCROLLBAR_HANDLE}; border-radius: 4px; min-height: 28px;
 }}
 QScrollBar::handle:vertical:hover {{ background: {T.SCROLLBAR_HANDLE_HOVER}; }}
-QScrollBar:horizontal {{
-    background: transparent; height: 10px; margin: 0;
-}}
+QScrollBar:horizontal {{ background: transparent; height: 8px; margin: 0; }}
 QScrollBar::handle:horizontal {{
-    background: {T.SCROLLBAR_HANDLE}; border-radius: 4px; min-width: 30px;
+    background: {T.SCROLLBAR_HANDLE}; border-radius: 4px; min-width: 28px;
 }}
 QScrollBar::handle:horizontal:hover {{ background: {T.SCROLLBAR_HANDLE_HOVER}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
@@ -334,18 +345,39 @@ QMenu {{
     background: {T.WHITE};
     border: 1px solid {T.BORDER};
     border-radius: {T.RADIUS_MD}px;
-    padding: 6px;
+    padding: 5px;
 }}
-QMenu::item {{ padding: 6px 24px; border-radius: {T.RADIUS_SM}px; }}
+QMenu::item {{ padding: 6px 24px; border-radius: {T.RADIUS_XS}px; }}
 QMenu::item:selected {{ background: {T.ACCENT_SOFT}; color: {T.TEXT_STRONG}; }}
-QMenu::separator {{ height: 1px; background: {T.BORDER}; margin: 4px 8px; }}
+QMenu::separator {{ height: 1px; background: {T.BORDER_MUTED}; margin: 4px 8px; }}
 QToolTip {{
     background: {T.WHITE};
     color: {T.TEXT_STRONG};
     border: 1px solid {T.BORDER};
-    border-radius: {T.RADIUS_SM}px;
+    border-radius: {T.RADIUS_XS}px;
     padding: 4px 8px;
 }}
 
-QStatusBar {{ background: {T.WHITE}; border-top: 1px solid {T.BORDER}; }}
+/* ---------- 预览窗口工具栏 ---------- */
+QToolBar {{
+    background: {T.WHITE};
+    border: none;
+    border-bottom: 1px solid {T.BORDER_MUTED};
+    padding: 4px 8px;
+    spacing: 4px;
+}}
+QToolBar::separator {{ width: 1px; background: {T.BORDER_MUTED}; margin: 3px 5px; }}
+QToolButton {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: {T.RADIUS_SM}px;
+    padding: 3px 9px;
+    color: {T.TEXT_SECONDARY};
+}}
+QToolButton:hover {{
+    background: {T.SURFACE_HOVER};
+    border-color: {T.BORDER};
+    color: {T.TEXT_STRONG};
+}}
+QToolButton:pressed {{ background: {T.SURFACE_PRESS}; }}
 """

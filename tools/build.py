@@ -19,7 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(ROOT, "src")
 DEMO_DIR = os.path.join(ROOT, "examples", "demo")
 DEFAULT_OUT_BASE = r"E:\平日资料\构建"
-SEMVER = "3.0.8"
+SEMVER = "3.1.0"
 
 # PySide6 仅实际使用 QtWidgets/QtGui/QtCore/QtNetwork + QtWebEngine 链路。
 # 其余 Qt 模块（多媒体/3D/图表/位置/PDF/虚拟键盘等）排除逻辑已内置于
@@ -33,7 +33,7 @@ def resolve_version(custom: str | None) -> str:
     try:
         out = subprocess.run(
             ["git", "-C", ROOT, "rev-parse", "--short=7", "HEAD"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, check=False,
         )
         if out.returncode == 0 and out.stdout.strip():
             hash_ = out.stdout.strip()
@@ -126,10 +126,11 @@ def smoke_test(build_root: str, exe: str) -> None:
         cmd = [exe, "--export", "--source", DEMO_DIR, "--output", out, *extra]
         proc = subprocess.run(
             cmd, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=300,
+            encoding="utf-8", errors="replace", timeout=300, check=False,
         )
         if proc.returncode != 0:
-            raise RuntimeError(f"smoke {name} failed rc={proc.returncode}\n{proc.stdout}\n{proc.stderr}")
+            raise RuntimeError(
+                f"smoke {name} failed rc={proc.returncode}\n{proc.stdout}\n{proc.stderr}")
         if not os.path.isfile(out) or os.path.getsize(out) == 0:
             raise RuntimeError(f"smoke {name} produced empty file")
         print(f"smoke {name} OK ({os.path.getsize(out)} bytes)")
@@ -140,13 +141,14 @@ def smoke_test(build_root: str, exe: str) -> None:
     for attempt in (1, 2):
         proc = subprocess.run(
             [exe, "--wc-check"], capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=120,
+            encoding="utf-8", errors="replace", timeout=120, check=False,
         )
         if proc.returncode == 0:
             break
         print(f"smoke wc-check attempt {attempt} failed rc={proc.returncode}, retrying…")
     else:
-        raise RuntimeError(f"smoke wc-check failed rc={proc.returncode}\n{proc.stdout}\n{proc.stderr}")
+        raise RuntimeError(
+            f"smoke wc-check failed rc={proc.returncode}\n{proc.stdout}\n{proc.stderr}")
     print("smoke wc-check OK")
 
 

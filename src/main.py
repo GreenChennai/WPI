@@ -46,9 +46,11 @@ def _build_app_icon():
         p = os.path.join(icons_dir, f"WPI_{size}.ico")
         if os.path.isfile(p):
             icon.addPixmap(QPixmap(p))
-    png = app_icon_path()
-    if (not png or icon.isNull()) and png and os.path.isfile(png):
-        icon.addPixmap(QPixmap(png))
+    # 各尺寸 ICO 全部缺失时以 PNG 兜底
+    if icon.isNull():
+        png = app_icon_path()
+        if png and os.path.isfile(png):
+            icon.addPixmap(QPixmap(png))
     return icon
 
 
@@ -76,9 +78,10 @@ def _attach_parent_console() -> None:
         stream = getattr(sys, name, None)
         if stream is None:
             # windowed 启动且没有继承到输出流：优先父控制台，否则写空设备兜底
+            # (进程级替换 sys.stdout/stderr,生命周期与进程一致,无需 with)
             for target in ("CONOUT$", os.devnull):
                 try:
-                    stream = open(target, "w", encoding="utf-8", errors="replace")
+                    stream = open(target, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
                     break
                 except Exception:
                     stream = None
@@ -87,7 +90,7 @@ def _attach_parent_console() -> None:
         elif attached:
             # 已附着父控制台：直接把输出指到控制台（utf-8），让用户看到进度
             try:
-                stream = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+                stream = open("CONOUT$", "w", encoding="utf-8", errors="replace")  # noqa: SIM115
                 setattr(sys, name, stream)
             except Exception:
                 pass
@@ -128,7 +131,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
             progress=lambda n: print(f"[progress] {n}%", flush=True),
             status=lambda m: print(f"[status] {m}", flush=True),
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"导出失败: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(f"[ok] {result}")
@@ -136,7 +139,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 
 def _cmd_wc_check(args: argparse.Namespace) -> int:
-    """WebEngine 自检：用 QWebEngineView 加载内置示例页，验证打包内 QtWebEngine 链路（冒烟测试）。"""
+    """WebEngine 自检:加载内置示例页,验证打包内 QtWebEngine 链路(冒烟测试)。"""
     os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox")
     os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
     from PySide6.QtCore import QTimer
@@ -145,7 +148,6 @@ def _cmd_wc_check(args: argparse.Namespace) -> int:
     from config.presets import example_dir
 
     app = QApplication(sys.argv)
-    win = None
 
     # 延迟导入：确保 QWebEngineProcess 在干净环境下启动
     from gui.preview_window import PreviewWindow
@@ -155,8 +157,7 @@ def _cmd_wc_check(args: argparse.Namespace) -> int:
 
     def _finish(ok_flag: bool):
         state["ok"] = bool(ok_flag)
-        if win is not None:
-            win.close()
+        win.close()
         app.quit()
 
     win._view.loadFinished.connect(_finish)
@@ -188,7 +189,7 @@ def _cmd_selfcheck(args: argparse.Namespace) -> int:
     )
     try:
         run_export_sync(params)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"selfcheck failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(f"selfcheck OK: {out}")

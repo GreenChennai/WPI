@@ -56,16 +56,24 @@ class MainWindow(QMainWindow):
         lay.addStretch(1)
         title = QLabel("Website Page to Image")
         title.setObjectName("bootTitle")
-        title.setAlignment(title.alignment() | 0x0004)  # Qt.AlignHCenter
+        title.setAlignment(Qt.AlignHCenter)
         lay.addWidget(title)
+        subtitle = QLabel("网页渲染导出工具 · PNG / GIF / MP4 / PDF")
+        subtitle.setObjectName("bootSubtitle")
+        subtitle.setAlignment(Qt.AlignHCenter)
+        lay.addSpacing(6)
+        lay.addWidget(subtitle)
+        lay.addSpacing(18)
         self._boot_progress = QProgressBar()
         self._boot_progress.setRange(0, 100)
         self._boot_progress.setValue(0)
-        self._boot_progress.setMaximumWidth(360)   # v2.7.0：启动进度条限宽居中，观感更聚焦
+        self._boot_progress.setTextVisible(False)
+        self._boot_progress.setMaximumWidth(280)   # 限宽居中，观感更聚焦
         lay.addWidget(self._boot_progress, 0, Qt.AlignHCenter)
         self._boot_label = QLabel("正在准备…")
-        self._boot_label.setProperty("secondary", True)
-        self._boot_label.setAlignment(self._boot_label.alignment() | 0x0004)
+        self._boot_label.setProperty("muted", True)
+        self._boot_label.setAlignment(Qt.AlignHCenter)
+        lay.addSpacing(8)
         lay.addWidget(self._boot_label)
         lay.addStretch(1)
         shell.setMinimumSize(420, 240)
@@ -74,10 +82,9 @@ class MainWindow(QMainWindow):
 
     def _start_boot(self) -> None:
         steps = [
-            (10, "加载样式…", self._step_style),
             (40, "构建界面…", self._step_build_ui),
             (70, "扫描工作目录…", self._step_scan),
-            (90, "完成", self._step_done),
+            (100, "完成", self._step_done),
         ]
         self._boot_steps = iter(steps)
         QTimer.singleShot(20, self._next_boot_step)
@@ -91,10 +98,6 @@ class MainWindow(QMainWindow):
         self._boot_label.setText(text)
         fn()
         QTimer.singleShot(20, self._next_boot_step)
-
-    def _step_style(self) -> None:
-        # 全局样式已在 main.py 的 QApplication 上设置，此处无需重复构建。
-        pass
 
     def _step_build_ui(self) -> None:
         self._build_ui()
@@ -146,32 +149,44 @@ class MainWindow(QMainWindow):
         self.size_panel.onlineBrowser.connect(self._open_browser_online)
 
         action_row = QHBoxLayout()
+        action_row.setSpacing(8)
         self.preview_btn = QPushButton("预览当前项目")
+        self.preview_btn.setObjectName("ghostBtn")
         self.preview_btn.setToolTip("在软件内置预览窗口打开当前选中的项目")
         self.preview_btn.clicked.connect(self._open_preview_current)
-        self.preview_btn.setMinimumHeight(36)
+        self.preview_btn.setMinimumHeight(34)
         action_row.addWidget(self.preview_btn)
 
         self.export_btn = QPushButton("导出")
         self.export_btn.setObjectName("primaryBtn")
-        self.export_btn.setMinimumHeight(36)
+        self.export_btn.setMinimumHeight(34)
         self.export_btn.clicked.connect(self._run_export)
         action_row.addWidget(self.export_btn, 1)
 
         # 「取消任务」：导出进行中显示，一键中止当前任务（导出中按钮右侧，红色）
-        self.cancel_btn = QPushButton("取消任务")
+        self.cancel_btn = QPushButton("取消")
         self.cancel_btn.setObjectName("dangerBtn")
-        self.cancel_btn.setMinimumHeight(36)
+        self.cancel_btn.setMinimumHeight(34)
         self.cancel_btn.setToolTip("一键取消当前正在进行的导出任务")
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
         self.cancel_btn.setVisible(False)
         action_row.addWidget(self.cancel_btn)
         right_layout.addLayout(action_row)
 
+        # 细进度条 + 右侧百分比标签:文字不压在色块上,任何进度都可读
+        progress_row = QHBoxLayout()
+        progress_row.setSpacing(8)
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        right_layout.addWidget(self.progress)
+        self.progress.setTextVisible(False)
+        progress_row.addWidget(self.progress, 1)
+        self.progress_pct = QLabel("")
+        self.progress_pct.setProperty("muted", True)
+        self.progress_pct.setMinimumWidth(36)
+        self.progress_pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        progress_row.addWidget(self.progress_pct)
+        right_layout.addLayout(progress_row)
 
         self.status_label = QLabel("就绪")
         self.status_label.setProperty("secondary", True)
@@ -189,13 +204,15 @@ class MainWindow(QMainWindow):
         self.workspace.workdirChanged.connect(self._on_workdir_changed)
         self.workspace.tabsChanged.connect(self._on_tabs_changed)
         self.size_panel.widthChanged.connect(self._on_width_changed)
+        self.size_panel.paramsChanged.connect(self._on_size_params_changed)
         self.export_panel.outputChanged.connect(self._on_output_changed)
+        self.export_panel.paramsChanged.connect(self._on_export_params_changed)
 
         self._real_central = central
 
     # --------------------------------------------------------- workspace ops
     def _scan_initial_project(self) -> None:
-        """从设置文件恢复上次工作目录标签页 / 宽度 / 输出路径。"""
+        """从设置文件恢复上次工作目录标签页 / 宽度 / 导出参数 / 输出路径。"""
         from config.presets import default_workspace_dir
 
         settings = self._settings
@@ -204,6 +221,11 @@ class MainWindow(QMainWindow):
         self.workspace.init_tabs(tabs, current)
         if settings.width:
             self.size_panel.set_width(settings.width)
+        if settings.scale != self.size_panel.get_scale():
+            self.size_panel.set_scale(settings.scale)
+        if settings.height_limit:
+            self.size_panel.set_height_limit(settings.height_limit)
+        self.export_panel.set_format(settings.format)
         if settings.output_path:
             self.export_panel.set_output_path(settings.output_path)
 
@@ -218,8 +240,15 @@ class MainWindow(QMainWindow):
     def _on_width_changed(self, width: int) -> None:
         self._settings.width = width
 
+    def _on_size_params_changed(self) -> None:
+        self._settings.scale = self.size_panel.get_scale()
+        self._settings.height_limit = self.size_panel.get_height_limit()
+
     def _on_output_changed(self, path: str) -> None:
         self._settings.output_path = path
+
+    def _on_export_params_changed(self) -> None:
+        self._settings.format = self.export_panel.get_format()
 
     def _on_project_selected(self, project: str) -> None:
         self._active_project = project
@@ -230,7 +259,9 @@ class MainWindow(QMainWindow):
             stem = os.path.splitext(os.path.basename(source))[0]
             self.export_panel.set_output_suggestion(os.path.dirname(source), stem)
         else:
-            self.export_panel.set_output_suggestion(os.path.dirname(project), os.path.basename(project))
+            self.export_panel.set_output_suggestion(
+                os.path.dirname(project), os.path.basename(project)
+            )
 
     # 多选集合变化 → 动态按钮标签 + 多选禁用预览
     def _on_selection_changed(self, projects: list) -> None:
@@ -267,15 +298,18 @@ class MainWindow(QMainWindow):
 
         width = self.size_panel.get_width()
         source = self._selected_source(project)
-        # 预览窗口已打开时复用同一窗口并重新加载新项目（否则切换项目仍显示旧页面）
+        # 预览窗口已打开时复用同一窗口并按当前宽度重新加载新项目
+        #（否则切换项目仍显示旧页面 / 旧视口宽度）
         if self._preview_win is not None and self._preview_win.isVisible():
             win = self._preview_win
+            win.set_width(width)
             win.load(source)
             win.setWindowTitle(f"网页预览 - {os.path.basename(source)}")
             win.raise_()
             win.activateWindow()
             return
         if self._preview_win is not None:
+            self._preview_win.deleteLater()
             self._preview_win = None
 
         win = PreviewWindow(self, width=width)
@@ -320,15 +354,17 @@ class MainWindow(QMainWindow):
     def _open_preview_online(self, url: str) -> None:
         from gui.preview_window import PreviewWindow  # 延迟导入，加速启动
 
-        # 复用可见窗口并重新加载新 URL
+        # 复用可见窗口并按当前宽度重新加载新 URL
         if self._preview_win is not None and self._preview_win.isVisible():
             win = self._preview_win
+            win.set_width(self.size_panel.get_width())
             win.load("", url_override=url)
             win.setWindowTitle(f"网页预览 - {url}")
             win.raise_()
             win.activateWindow()
             return
         if self._preview_win is not None:
+            self._preview_win.deleteLater()
             self._preview_win = None
 
         width = self.size_panel.get_width()
@@ -419,7 +455,7 @@ class MainWindow(QMainWindow):
 
     def _start_export_worker(self, params_list: list, label: str, status_text: str) -> None:
         """统一启动导出工作线程（本地 / 在线 / 批量共用）。"""
-        self.progress.setValue(0)
+        self._set_progress(0)
         self.status_label.setText(status_text)
         self.export_btn.setText(label)
         self.export_btn.setEnabled(False)
@@ -428,7 +464,7 @@ class MainWindow(QMainWindow):
         self._cancel_event = threading.Event()
         self.cancel_btn.setVisible(True)
         self.cancel_btn.setEnabled(True)
-        self.cancel_btn.setText("取消任务")
+        self.cancel_btn.setText("取消")
 
         self._thread = QThread(self)
         self._export_worker = Controller()
@@ -436,7 +472,7 @@ class MainWindow(QMainWindow):
         self._export_worker.set_cancel_event(self._cancel_event)
         self._export_worker.moveToThread(self._thread)
         self._thread.started.connect(self._export_worker.run)
-        self._export_worker.progress.connect(self.progress.setValue)
+        self._export_worker.progress.connect(self._set_progress)
         self._export_worker.status.connect(self.status_label.setText)
         self._export_worker.result.connect(self._on_export_done)
         self._export_worker.failed.connect(self._on_export_failed)
@@ -444,12 +480,17 @@ class MainWindow(QMainWindow):
         self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
 
+    def _set_progress(self, value: int) -> None:
+        """进度条与百分比标签同步更新（空闲时标签留空）。"""
+        self.progress.setValue(value)
+        self.progress_pct.setText(f"{value}%" if 0 < value < 100 else "")
+
     def _on_cancel_clicked(self) -> None:
-        """点击「取消任务」：置取消标志并立即清空进度，交给导出循环正常中止。"""
+        """点击「取消」：置取消标志并立即清空进度，交给导出循环正常中止。"""
         if self._cancel_event is None:
             return
         self._cancel_event.set()
-        self.progress.setValue(0)
+        self._set_progress(0)
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.setText("正在取消…")
         self.status_label.setText("正在取消当前任务…")
@@ -457,7 +498,7 @@ class MainWindow(QMainWindow):
     def _on_export_cancelled(self) -> None:
         self._finish_busy()
         # 取消后进度条归零，不再残留取消前的百分比
-        self.progress.setValue(0)
+        self._set_progress(0)
         QMessageBox.information(self, "已取消", "导出任务已取消。")
 
     def _on_export_done(self, result: dict) -> None:
@@ -469,8 +510,8 @@ class MainWindow(QMainWindow):
                 # 单选也走批量通道，按单文件提示「导出完成」而非「批量导出完成」
                 r = results[0]
                 msgs = [
-                    f"导出完成: {os.path.basename(r['path'])}\n"
-                    f"尺寸 {r['width']} × {r['height']}  {r['format']}"
+                    (f"导出完成: {os.path.basename(r['path'])}\n"
+                     f"尺寸 {r['width']} × {r['height']}  {r['format']}")
                 ]
                 if r.get("frames", 1) > 1:
                     msgs.append(f"帧数 {r['frames']}")
@@ -480,10 +521,10 @@ class MainWindow(QMainWindow):
                     msgs.append(f"提醒: {w}")
                 QMessageBox.information(self, "完成", "\n".join(msgs))
                 return
-            lines = [f"批量导出完成：{n} 个文件"]
+            lines = [f"批量导出完成:{n} 个文件"]
             for r in results[:15]:
                 lines.append(
-                    f"· {os.path.basename(r['path'])}  "
+                    f"- {os.path.basename(r['path'])}  "
                     f"{r['width']}×{r['height']} {r['format']}"
                 )
             if n > 15:
@@ -494,8 +535,8 @@ class MainWindow(QMainWindow):
             return
         path = result["path"]
         msgs = [
-            f"导出完成: {os.path.basename(path)}\n"
-            f"尺寸 {result['width']} × {result['height']}  {result['format']}"
+            (f"导出完成: {os.path.basename(path)}\n"
+             f"尺寸 {result['width']} × {result['height']}  {result['format']}")
         ]
         if result.get("frames", 1) > 1:
             msgs.append(f"帧数 {result['frames']}")
@@ -520,7 +561,8 @@ class MainWindow(QMainWindow):
         self._cancel_event = None
         self.cancel_btn.setVisible(False)
         self.cancel_btn.setEnabled(True)
-        self.cancel_btn.setText("取消任务")
+        self.cancel_btn.setText("取消")
+        self.progress_pct.setText("")
         # 依据当前多选状态刷新按钮标签 / 预览可用性
         self._on_selection_changed(self.workspace.selected_projects())
 

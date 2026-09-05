@@ -35,6 +35,8 @@ from config.presets import (
 
 class SizePanel(QWidget):
     widthChanged = Signal(int)
+    # 倍率 / 高度限制变更(供设置记忆持久化)
+    paramsChanged = Signal()
     # 在线网站预览 / 浏览器打开
     onlinePreview = Signal(str)
     onlineBrowser = Signal(str)
@@ -76,6 +78,7 @@ class SizePanel(QWidget):
         self.scale_combo.setToolTip(
             "原生渲染倍率：页面仍按设定宽度布局，输出分辨率 × 倍率（布局与比例不变）"
         )
+        self.scale_combo.currentIndexChanged.connect(self._changed)
         scale_row.addWidget(self.scale_combo, 1)
         form.addRow("分辨率倍率", scale_row)
 
@@ -94,6 +97,7 @@ class SizePanel(QWidget):
         self.height_spin.setSuffix(" px")
         self.height_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.height_spin.setEnabled(False)
+        self.height_spin.valueChanged.connect(self._changed)
         height_row.addWidget(self.height_chk)
         height_row.addWidget(self.height_spin)
         height_row.addStretch(1)
@@ -140,6 +144,12 @@ class SizePanel(QWidget):
     def get_scale(self) -> int:
         return int(self.scale_combo.currentData())
 
+    def set_scale(self, scale: int) -> None:
+        """外部设置分辨率倍率（设置记忆回填等），非法值忽略。"""
+        idx = self.scale_combo.findData(int(scale))
+        if idx >= 0:
+            self.scale_combo.setCurrentIndex(idx)
+
     # 高度锁定（0 = 不限制）
     def get_height_limit(self) -> int:
         if not self.height_chk.isChecked():
@@ -164,8 +174,12 @@ class SizePanel(QWidget):
     def _text_changed(self, _text: str) -> None:
         self.widthChanged.emit(self.get_width())
 
+    def _changed(self, *_) -> None:
+        self.paramsChanged.emit()
+
     def _on_height_toggled(self, checked: bool) -> None:
         self.height_spin.setEnabled(checked)
+        self.paramsChanged.emit()
 
     def _emit_online_preview(self) -> None:
         url = self.get_online_url()
