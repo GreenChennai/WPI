@@ -269,7 +269,9 @@ QComboBox#cardEntry QAbstractItemView {{
 }}
 
 /* ---------- 子目录卡片 / 色卡 ---------- */
-#workdirBox {{ background: transparent; border: none; }}
+/* 工作目录区是画布上的卡片流,无外框;横向内边距归零,把宽度留给卡片网格
+   (默认窗口宽度下要排满 4 列),顶部保留标题占位 */
+#workdirBox {{ background: transparent; border: none; padding: 28px 0px 0px 0px; }}
 #workdirBox QScrollArea, #workdirBox QScrollArea > QWidget > QWidget {{
     background: transparent;
 }}

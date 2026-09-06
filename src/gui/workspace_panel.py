@@ -22,6 +22,7 @@ from PySide6.QtCore import (
     QSize,
     Qt,
     QThreadPool,
+    QTimer,
     QUrl,
     Signal,
 )
@@ -488,8 +489,18 @@ class WorkspacePanel(QGroupBox):
         self._current: int = 0
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(T.SPACE_LG, T.SPACE_SM, T.SPACE_LG, T.SPACE_LG)
+        # 横向边距收敛到 12:左侧画布无外框,留白交给卡片网格本身,
+        # 为默认窗口宽度下排满 4 列卡片腾出空间
+        root.setContentsMargins(T.SPACE_MD, 6, T.SPACE_MD, T.SPACE_MD)
         root.setSpacing(6)
+
+        # 卡片重排用单发定时器延迟到事件循环下一拍:布局过程中(启动/换目录/
+        # 拖拽分栏)读取到的视口宽度可能是过渡值,立即重排会把网格卡在
+        # 错误列数上;延迟一拍等布局定稿后再计算,列数始终与最终宽度一致
+        self._reflow_timer = QTimer(self)
+        self._reflow_timer.setSingleShot(True)
+        self._reflow_timer.setInterval(0)
+        self._reflow_timer.timeout.connect(self._reflow)
 
         # 标签页行：目录标签 + 右侧「+」按钮（永远在最右）
         tab_row = QHBoxLayout()
@@ -771,7 +782,7 @@ class WorkspacePanel(QGroupBox):
         ]
         self._entries.extend(folders)
         self._refresh_cards(projects, folders)
-        self._reflow()
+        self._reflow_timer.start()
 
         empty = not (projects or folders)
         self._empty_container.setVisible(empty)
@@ -816,11 +827,15 @@ class WorkspacePanel(QGroupBox):
 
         卡片固定 168×168；UI 宽度每次变化（工作目录面板变宽/窄、窗口缩放）
         时重新计算列数并重排，保证尽可能多显示卡片且缩进居中。
+        由 _reflow_timer 延迟一拍调用（布局定稿后视口宽度才是最终值）。
         列数与条目均未变化（如纯拖动缩放未跨列）时跳过重排，
         减少重复布局与卡片抖动。
+
+        可用宽度即滚动区视口宽（网格自身零边距，卡片间距由公式体现），
+        不再额外扣减面板边距——那些已由布局层消化，重复扣减会把
+        默认窗口宽度下的列数压少一列。
         """
-        avail = max(200, self._scroll.viewport().width()
-                    - T.SPACE_LG * 2 - self._grid.spacing())
+        avail = max(200, self._scroll.viewport().width() - self._grid.spacing())
         card_w = _CARD_SIZE + self._grid.spacing()
         cols = max(1, (avail + self._grid.spacing()) // card_w)
         if cols == self._last_cols and self._entries is self._last_entries:
@@ -850,7 +865,7 @@ class WorkspacePanel(QGroupBox):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if self._grid.count() and self._entries and self.isVisible():
-            self._reflow()
+            self._reflow_timer.start()   # 延迟一拍,等布局定稿后按最终宽度重排
 
     # ------------------------------------------------------------- internal
     def current_dir(self) -> str:
