@@ -24,7 +24,7 @@
 - **PDF 输出**：按屏幕样式打印（所见即所得），超长内容自动分页为常规尺寸，Edge / Chrome 均可正常查看。
 - **批量导出与多选**：`Shift` 连选 / `Ctrl` 单选批量勾选项目，一键批量导出；重名文件自动追加 `_1 / _2…` 后缀，绝不覆盖。
 - **工作目录卡片流**：项目以彩色卡片展示并自动提取网站主色色卡，支持进入子目录继续浏览。
-- **命令行导出**：`WPI.exe --export` 支持无 GUI 纯命令行导出。
+- **双形态发布**：`WPI-GUI.exe` 完整图形界面；`WPI-noGUI-cli.exe` 无 GUI 纯命令行导出器（剔除 Qt、不随附 FFmpeg，用法见 `README-CLI.md`）。
 - **设置记忆**：工作目录、导出宽度、导出格式、分辨率倍率、高度限制、输出路径自动持久化，重启后恢复。
 
 ## 快速开始
@@ -59,7 +59,13 @@ python src\main.py --export --source examples\demo --output out.pdf --format PDF
 python src\main.py --export --source https://example.com --output out.png --format PNG --width 1440
 ```
 
-打包后的 `WPI.exe` 同样支持：`WPI.exe --export --source <路径或URL> --output out.png --format PNG --width 1080`（自动挂接控制台输出）。
+打包后的 `WPI-GUI.exe` 同样支持：`WPI-GUI.exe --export --source <路径或URL> --output out.png --format PNG --width 1080`（自动挂接控制台输出）。
+
+无 GUI 场景请使用 `WPI-noGUI-cli.exe`（参数更完整，见 `README-CLI.md`）：
+
+```bash
+WPI-noGUI-cli.exe --source examples\demo --output out.png --width 1080
+```
 
 ## 使用流程
 
@@ -74,10 +80,17 @@ python src\main.py --export --source https://example.com --output out.png --form
 本地构建（构建 + 离线冒烟测试 + 归档）：
 
 ```bash
-python tools\build.py            # 构建 + 离线冒烟测试 + 归档
+python tools\build.py            # 构建 GUI + noGUI CLI 双 exe + 离线冒烟 + 归档
 ```
 
-产出于 `工具所在盘\构建\WPI-v{version}\WPI.exe`（单文件可执行程序，含内置示例页与图标，体积约 200 MB 且已剔除未使用的 Qt 子系统）。
+一次构建产出（`工具所在盘\构建\WPI-v{version}\`）：
+
+| 产物 | 说明 |
+|---|---|
+| `WPI-GUI.exe` | 完整图形界面版（单文件，含内置示例页与图标，约 200 MB，已剔除未使用的 Qt 子系统） |
+| `WPI-noGUI-cli.exe` | 无 GUI 命令行导出器（剔除 PySide6，约 40 MB；用法见 `README-CLI.md`） |
+| `ffmpeg.exe` | 随包编码器（GIF 调色板 / MP4 编码） |
+| `README.md` / `README-CLI.md` / `VERSION.txt` | 文档与版本信息 |
 
 GitHub 推送到 `main` 分支时，由 GitHub Actions 自动构建并发布 Release（含附 ffmpeg 的 ZIP 与单文件 exe）。
 
@@ -87,13 +100,14 @@ GitHub 推送到 `main` 分支时，由 GitHub Actions 自动构建并发布 Rel
 WPI/
 ├── assets/                  # 应用图标（WPI.png + 多尺寸 WPI_*.ico）
 ├── src/
-│   ├── main.py              # 入口（GUI + --export CLI + --wc-check 自检）
+│   ├── main.py              # GUI 入口（含 --export CLI / --selfcheck / --wc-check 自检）
+│   ├── cli.py               # WPI-noGUI-cli 入口（无 Qt,纯命令行导出）
 │   ├── gui/                 # 表示层：主窗口 / 工作目录 / 尺寸 / 导出 / 预览 / 主题
 │   ├── core/                # 控制层：controller / browser_host / capture_engine / static_server
 │   ├── export/              # 编码链路：png / gif / mp4 / pdf exporter
 │   └── config/              # presets（预设、版本号）/ settings（配置持久化）
 ├── examples/demo/           # 内置示例页（含 CSS/JS/图片/动画）
-├── tools/                   # build.py 构建脚本 + wpi.spec 打包配置
+├── tools/                   # build.py 构建脚本 + wpi.spec(GUI)/wpi-cli.spec(CLI) 打包配置
 ├── pyproject.toml
 └── README.md
 ```

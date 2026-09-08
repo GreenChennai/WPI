@@ -162,7 +162,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="WPI",
+    name="WPI-GUI",        # 与无 GUI 版 WPI-noGUI-cli 成对发布
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

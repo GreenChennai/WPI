@@ -52,13 +52,13 @@ jobs:
       - name: Determine version
         shell: pwsh
         run: |
-          $ver = "3.1.1-" + (git rev-parse --short=7 HEAD)
+          $ver = "3.2.0-" + (git rev-parse --short=7 HEAD)
           $buildDir = (Get-ChildItem "dist_wpi" -Directory | Select-Object -First 1).FullName
           "VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
           "BUILD_DIR=$buildDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
           Write-Host "version=$ver buildDir=$buildDir"
 
-      - name: Package zip (exe + ffmpeg + docs)
+      - name: Package zip (exes + ffmpeg + docs)
         shell: pwsh
         run: |
           $zip = "$env:RUNNER_TEMP/WPI-$env:VERSION.zip"
@@ -71,10 +71,11 @@ jobs:
           tag_name: "WPI-${{ env.VERSION }}"
           name: "WPI ${{ env.VERSION }}"
           body: |
-            WPI v3.1.1 自动构建产物（推送到 main 触发）。
+            WPI v3.2.0 自动构建产物（推送到 main 触发）。
 
-            内含：单文件程序 WPI.exe、附随 ffmpeg.exe、README、VERSION.txt。
+            内含：WPI-GUI.exe（图形界面版）、WPI-noGUI-cli.exe（无 GUI 命令行导出器）、随附 ffmpeg.exe、README / README-CLI / VERSION.txt。
           files: |
-            ${{ env.BUILD_DIR }}/WPI.exe
+            ${{ env.BUILD_DIR }}/WPI-GUI.exe
+            ${{ env.BUILD_DIR }}/WPI-noGUI-cli.exe
             ${{ env.RUNNER_TEMP }}/WPI-${{ env.VERSION }}.zip
           fail_on_unmatched_assets: true
