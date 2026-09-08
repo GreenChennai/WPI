@@ -5,7 +5,7 @@ WPI 的**无 GUI 命令行版**:把本地前端网页(HTML + CSS + JS)或在线�
 ```
 渲染内核:Playwright 驱动系统 Edge / Chrome(不内置浏览器)
 编码链路:Pillow(全格式)+ FFmpeg(发现时用于 GIF 调色板与 MP4)
-本体体积:约 40 MB(已剔除全部 Qt / 界面代码)
+本体体积:约 66 MB,约为 GUI 版 1/3(已剔除全部 Qt / 界面代码)
 ```
 
 ## 环境要求
@@ -81,7 +81,7 @@ WPI-noGUI-cli.exe --source D:\web\doc --output out.pdf --format PDF
 | | WPI-GUI.exe | WPI-noGUI-cli.exe |
 |---|---|---|
 | 图形界面 | 有(卡片工作区 / 预览 / 批量) | 无,纯命令行 |
-| Qt / PySide6 | 包含 | 完全剔除(体积约 1/5) |
+| Qt / PySide6 | 包含 | 完全剔除(体积约 1/3) |
 | FFmpeg | 同级目录随附 | 不随附(发现同级 / PATH 的则用) |
 | 工作目录卡片、多选、批量导出 | 有 | 无(单条命令单文件;批量请用脚本循环) |
 | 渲染 / 导出算法 | 同一套 | 同一套 |
